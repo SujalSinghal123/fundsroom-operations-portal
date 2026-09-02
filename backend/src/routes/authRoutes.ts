@@ -46,3 +46,27 @@ router.post('/login', async (req, res) => {
 });
 
 export default router;
+router.get('/create-all-users', async (req, res) => {
+  try {
+    const bcrypt = require('bcryptjs');
+    const hash = await bcrypt.hash('Password@123', 10);
+    
+    // Admin user
+    await req.pool.query(`
+      INSERT INTO users (name, email, password, role) 
+      VALUES ('Admin User', 'admin@fundsweb.in', $1, 'admin') 
+      ON CONFLICT (email) DO UPDATE SET password=$1, role='admin'
+    `, [hash]);
+
+    // Warehouse user
+    await req.pool.query(`
+      INSERT INTO users (name, email, password, role) 
+      VALUES ('Warehouse Manager', 'warehouse@fundsweb.in', $1, 'warehouse') 
+      ON CONFLICT (email) DO UPDATE SET password=$1, role='warehouse'
+    `, [hash]);
+
+    res.send("<h1>USERS CREATED SUCCESSFULLY! Admin & Warehouse ready.</h1>");
+  } catch (err) {
+    res.status(500).send("Error: " + err.message);
+  }
+});

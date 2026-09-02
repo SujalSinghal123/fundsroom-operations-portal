@@ -134,6 +134,7 @@ export default function App() {
             <div className="inline-flex h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white items-center justify-center font-black text-xl mb-3 shadow-lg shadow-indigo-500/30">FR</div>
             <h1 className="text-2xl font-black text-white tracking-tight">Fundsroom Portal</h1>
             <p className="text-xs text-slate-400 mt-1">Enterprise Mini ERP, CRM & Inventory Suite</p>
+            <p className="text-xs text-indigo-400 font-medium tracking-wide mt-1.5">Developed by Sujal Singhal</p>
           </div>
           {authError && <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs">{authError}</div>}
           <form onSubmit={handleLogin} className="space-y-4">
@@ -622,3 +623,6 @@ export default function App() {
     </div>
   );
 }
+<div className="mt-6 text-center text-xs text-gray-500">
+  Designed & Developed by <span className="text-indigo-400 font-semibold">Sujal Singhal</span>
+</div>

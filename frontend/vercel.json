@@ -1,9 +1,8 @@
-
 {
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://fundsroom-api-twtt.onrender.com/:path*"
+      "source": "/api/(.*)",
+      "destination": "https://fundsroom-api-twtt.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",

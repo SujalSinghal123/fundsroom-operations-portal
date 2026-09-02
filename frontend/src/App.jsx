@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 
 const API_BASE = 'https://fundsroom-api-twtt.onrender.com/api';
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));

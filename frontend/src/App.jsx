@@ -1,494 +1,363 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 export default function App() {
-  // Navigation tab state
-  const [activeTab, setActiveTab] = useState('challans'); // 'challans' | 'inventory' | 'crm'
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
+  const [activeTab, setActiveTab] = useState('crm');
 
-  // Counters
-  const [customerAccounts, setCustomerAccounts] = useState(2);
-  const [warehouseUnits, setWarehouseUnits] = useState(19);
-  const [lowStockWarnings, setLowStockWarnings] = useState(3);
-  const [challansCount, setChallansCount] = useState(10);
+  // Auth Inputs
+  const [email, setEmail] = useState('admin@fundsroom.com');
+  const [password, setPassword] = useState('Password@123');
 
-  // Success Banner
-  const [successMsg, setSuccessMsg] = useState('Sales Challan CH-082203 recorded successfully!');
+  // Data states
+  const [customers, setCustomers] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [searchCust, setSearchCust] = useState('');
 
-  // Modal State for "View Invoice"
-  const [activeInvoice, setActiveInvoice] = useState(null);
+  // Form states
+  const [custForm, setCustForm] = useState({
+    customer_name: '', mobile_number: '', email: '', business_name: '',
+    customer_type: 'Wholesale', address: '', status: 'Lead', follow_up_date: '', notes: ''
+  });
 
-  // Customers Data
-  const [customersList, setCustomersList] = useState([
-    { id: '1', name: 'Vikram Patel', business: 'Patel Logistics', phone: '+91 9811223344', email: 'vikram@patellogistics.com' },
-    { id: '2', name: 'Rajesh Sharma', business: 'Sharma Enterprises', phone: '+91 9876543210', email: 'rajesh@sharma.in' }
-  ]);
+  const [challanItems, setChallanItems] = useState([]);
+  const [selectedCustId, setSelectedCustId] = useState('');
+  const [challanStatus, setChallanStatus] = useState('Draft');
 
-  // Inventory Data
-  const [productsList, setProductsList] = useState([
-    { id: 'p1', name: 'Heavy Duty Pallet Racks', stock: 10, minThreshold: 5, category: 'Storage' },
-    { id: 'p2', name: 'Hydraulic Forklift Pallet Truck 2.5T', stock: 6, minThreshold: 3, category: 'Machinery' },
-    { id: 'p3', name: 'Barcode Scanner Pro Wireless', stock: 3, minThreshold: 5, category: 'Electronics' }
-  ]);
+  useEffect(() => {
+    if (token) {
+      fetchCustomers();
+      fetchProducts();
+    }
+  }, [token]);
 
-  // Form State
-  const [selectedPartner, setSelectedPartner] = useState('');
-  const [lineItems, setLineItems] = useState([{ id: 1, productId: '', qty: 1 }]);
-  const [dispatchState, setDispatchState] = useState('Confirmed (Immediate Stock Reduction)');
-
-  // Records Table Data
-  const [records, setRecords] = useState([
-    { id: 'CH-082203', customer: 'Vikram Patel', qty: 1, status: 'Confirmed', date: '2026-09-02' },
-    { id: 'CH-061853', customer: 'Rajesh Sharma', qty: 1, status: 'Confirmed', date: '2026-09-02' },
-    { id: 'CH-756822', customer: 'Vikram Patel', qty: 3, status: 'Confirmed', date: '2026-09-02' },
-    { id: 'CH-735081', customer: 'Vikram Patel', qty: 3, status: 'Confirmed', date: '2026-09-01' },
-    { id: 'CH-732341', customer: 'Vikram Patel', qty: 3, status: 'Confirmed', date: '2026-09-01' },
-    { id: 'CH-539689', customer: 'Rajesh Sharma', qty: 5, status: 'Confirmed', date: '2026-08-30' },
-    { id: 'CH-519621', customer: 'Rajesh Sharma', qty: 3, status: 'Confirmed', date: '2026-08-29' },
-    { id: 'CH-492626', customer: 'Rajesh Sharma', qty: 2, status: 'Confirmed', date: '2026-08-28' },
-    { id: 'CH-491595', customer: 'Rajesh Sharma', qty: 2, status: 'Confirmed', date: '2026-08-27' },
-    { id: 'CH-488480', customer: 'Rajesh Sharma', qty: 2, status: 'Confirmed', date: '2026-08-26' }
-  ]);
-
-  // Dynamic Add Line Item
-  const handleAddLine = () => {
-    setLineItems(prev => [...prev, { id: Date.now(), productId: '', qty: 1 }]);
-  };
-
-  const handleUpdateLine = (index, field, value) => {
-    const updated = [...lineItems];
-    updated[index][field] = value;
-    setLineItems(updated);
-  };
-
-  const handleRemoveLine = (index) => {
-    if (lineItems.length === 1) return;
-    setLineItems(lineItems.filter((_, i) => i !== index));
-  };
-
-  // Submit Challan
-  const handleDispatch = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (!selectedPartner) {
-      alert('Kripya Customer / Consignee select karein.');
-      return;
-    }
-
-    const hasEmptyProduct = lineItems.some(item => !item.productId);
-    if (hasEmptyProduct) {
-      alert('Kripya sabhi line items ke liye product select karein.');
-      return;
-    }
-
-    const totalQty = lineItems.reduce((acc, item) => acc + Number(item.qty || 1), 0);
-    const partnerObj = customersList.find(c => c.id === selectedPartner);
-    const newChallanId = `CH-${Math.floor(100000 + Math.random() * 900000)}`;
-
-    const newRecord = {
-      id: newChallanId,
-      customer: partnerObj ? partnerObj.name : 'Unknown Partner',
-      qty: totalQty,
-      status: 'Confirmed',
-      date: new Date().toISOString().split('T')[0]
-    };
-
-    // Update state
-    setRecords([newRecord, ...records]);
-    setChallansCount(prev => prev + 1);
-    setWarehouseUnits(prev => Math.max(0, prev - totalQty));
-    setSuccessMsg(`Sales Challan ${newChallanId} recorded successfully!`);
-
-    // Reset Form
-    setSelectedPartner('');
-    setLineItems([{ id: 1, productId: '', qty: 1 }]);
-  };
-
-  // Export PDF Button Handler
-  const handleExportPDF = () => {
-    window.print();
-  };
-
-  // Terminate Session Handler
-  const handleTerminateSession = () => {
-    if (window.confirm('Kya aap sign out karna chahte hain?')) {
-      alert('Session terminated successfully.');
-      window.location.reload();
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setToken(data.token);
+        setUser(data.user);
+      } else {
+        alert(data.message || 'Login failed');
+      }
+    } catch (err) {
+      alert('Network error during login');
     }
   };
+
+  const handleLogout = () => {
+    localStorage.clear();
+    setToken('');
+    setUser(null);
+  };
+
+  const fetchCustomers = async () => {
+    const res = await fetch(`${API_BASE}/customers`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (Array.isArray(data)) setCustomers(data);
+    else if (data.data) setCustomers(data.data);
+  };
+
+  const fetchProducts = async () => {
+    const res = await fetch(`${API_BASE}/products`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (Array.isArray(data)) setProducts(data);
+    else if (data.data) setProducts(data.data);
+  };
+
+  const createCustomer = async (e) => {
+    e.preventDefault();
+    const res = await fetch(`${API_BASE}/customers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(custForm)
+    });
+    if (res.ok) {
+      alert('Customer added successfully');
+      fetchCustomers();
+      setCustForm({
+        customer_name: '', mobile_number: '', email: '', business_name: '',
+        customer_type: 'Wholesale', address: '', status: 'Lead', follow_up_date: '', notes: ''
+      });
+    } else {
+      const err = await res.json();
+      alert(err.message || 'Failed to add customer');
+    }
+  };
+
+  const addChallanRow = () => {
+    if (products.length === 0) return alert('No products available');
+    setChallanItems([...challanItems, { product_id: products[0].id, quantity: 1 }]);
+  };
+
+  const submitChallan = async () => {
+    if (!selectedCustId || challanItems.length === 0) {
+      return alert('Select a customer and add at least one item');
+    }
+    const res = await fetch(`${API_BASE}/challans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        customer_id: selectedCustId,
+        items: challanItems,
+        status: challanStatus
+      })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`Challan Created: ${data.data.challan_number}`);
+      setChallanItems([]);
+      fetchProducts();
+    } else {
+      alert(data.message || 'Error creating challan');
+    }
+  };
+
+  if (!token) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+          <h2 className="text-2xl font-bold mb-4 text-slate-800">Mini ERP Login</h2>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-600">Email</label>
+              <input 
+                className="w-full border p-2 rounded" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+                required 
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-600">Password</label>
+              <input 
+                type="password" 
+                className="w-full border p-2 rounded" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                required 
+              />
+            </div>
+            <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-semibold hover:bg-blue-700">
+              Sign In
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  const filteredCustomers = customers.filter(c => 
+    c.customer_name?.toLowerCase().includes(searchCust.toLowerCase()) ||
+    c.business_name?.toLowerCase().includes(searchCust.toLowerCase())
+  );
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#090d16', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      
-      {/* Sidebar */}
-      <aside style={{ width: '260px', backgroundColor: '#0f1422', borderRight: '1px solid #1e293b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '20px 16px' }}>
+    <div className="min-h-screen bg-slate-50">
+      {/* Header */}
+      <header className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
         <div>
-          {/* Logo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
-            <div style={{ width: '42px', height: '42px', backgroundColor: '#4f46e5', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#ffffff', fontSize: '18px' }}>
-              FR
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontWeight: 700, fontSize: '15px', color: '#ffffff' }}>Fundsroom</span>
-                <span style={{ backgroundColor: '#3b82f6', color: '#ffffff', fontSize: '10px', fontWeight: 'bold', padding: '2px 5px', borderRadius: '4px' }}>PRO</span>
-              </div>
-              <div style={{ fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', marginTop: '3px' }}>OPERATIONS SUITE</div>
-            </div>
-          </div>
-
-          {/* Navigation Links */}
-          <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', marginBottom: '12px' }}>
-            ENTERPRISE CORE
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <button 
-              onClick={() => setActiveTab('challans')}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: activeTab === 'challans' ? '#4f46e5' : 'transparent', color: activeTab === 'challans' ? '#ffffff' : '#94a3b8', borderRadius: '8px', border: 'none', fontWeight: 500, fontSize: '13px', cursor: 'pointer', transition: '0.2s' }}>
-              <span>📄 Sales Challans</span>
-              <span style={{ backgroundColor: activeTab === 'challans' ? '#1e1b4b' : '#1e293b', color: '#ffffff', fontSize: '11px', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>{challansCount}</span>
-            </button>
-            <button 
-              onClick={() => setActiveTab('inventory')}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: activeTab === 'inventory' ? '#4f46e5' : 'transparent', color: activeTab === 'inventory' ? '#ffffff' : '#94a3b8', borderRadius: '8px', border: 'none', fontSize: '13px', cursor: 'pointer', transition: '0.2s' }}>
-              <span>📦 Inventory & Stocks</span>
-              <span style={{ backgroundColor: '#7f1d1d', color: '#fca5a5', fontSize: '10px', padding: '2px 6px', borderRadius: '12px', fontWeight: 'bold' }}>!</span>
-            </button>
-            <button 
-              onClick={() => setActiveTab('crm')}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: activeTab === 'crm' ? '#4f46e5' : 'transparent', color: activeTab === 'crm' ? '#ffffff' : '#94a3b8', borderRadius: '8px', border: 'none', fontSize: '13px', cursor: 'pointer', transition: '0.2s' }}>
-              <span>👥 Customer CRM</span>
-              <span style={{ color: '#64748b', fontSize: '11px' }}>{customerAccounts}</span>
-            </button>
-          </div>
+          <h1 className="text-xl font-bold text-slate-800">Operations Portal</h1>
+          <p className="text-xs text-slate-500">Logged in as: <span className="font-semibold">{user?.name || user?.email}</span> ({user?.role})</p>
         </div>
+        <button onClick={handleLogout} className="text-sm bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded font-medium hover:bg-red-100">
+          Logout
+        </button>
+      </header>
 
-        {/* User Card */}
-        <div style={{ borderTop: '1px solid #1e293b', paddingTop: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: '#ffffff' }}>Sales Lead</div>
-              <div style={{ fontSize: '10px', color: '#38bdf8', letterSpacing: '0.05em' }}>SALES PERSONA</div>
-            </div>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
-          </div>
-          <button 
-            onClick={handleTerminateSession}
-            style={{ width: '100%', padding: '8px', backgroundColor: '#1e293b', color: '#94a3b8', border: '1px solid #334155', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', transition: '0.2s' }}>
-            Terminate Session
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Panel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        {/* Header */}
-        <header style={{ height: '56px', borderBottom: '1px solid #1e293b', padding: '0 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#0c101d' }}>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            Workspace / <span style={{ color: '#cbd5e1', fontWeight: 500 }}>
-              {activeTab === 'challans' ? 'Challans View' : activeTab === 'inventory' ? 'Inventory View' : 'Customer CRM'}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#34d399', backgroundColor: '#064e3b33', padding: '4px 10px', borderRadius: '6px', border: '1px solid #065f46' }}>
-            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
-            Neon Cloud DB Live
-          </div>
-        </header>
-
-        {/* Tab 1: Sales Challans View */}
-        {activeTab === 'challans' && (
-          <main style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Top Metric Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>CUSTOMER ACCOUNTS</span>
-                  <span style={{ fontSize: '14px', color: '#6366f1' }}>👥</span>
-                </div>
-                <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{customerAccounts}</div>
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Verified partner entities</div>
-              </div>
-
-              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>WAREHOUSE TOTAL UNITS</span>
-                  <span style={{ fontSize: '14px', color: '#f59e0b' }}>📦</span>
-                </div>
-                <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{warehouseUnits}</div>
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Live physical count</div>
-              </div>
-
-              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>LOW STOCK WARNINGS</span>
-                  <span style={{ fontSize: '14px', color: '#ef4444' }}>⚠️</span>
-                </div>
-                <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{lowStockWarnings}</div>
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Below minimum threshold</div>
-              </div>
-
-              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>CHALLANS GENERATED</span>
-                  <span style={{ fontSize: '14px', color: '#8b5cf6' }}>📄</span>
-                </div>
-                <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{challansCount}</div>
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Audit log records</div>
-              </div>
-            </div>
-
-            {/* Success Notification */}
-            {successMsg && (
-              <div style={{ backgroundColor: '#064e3b40', border: '1px solid #065f46', borderRadius: '8px', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#34d399', fontSize: '13px' }}>
-                <span>{successMsg}</span>
-                <span onClick={() => setSuccessMsg('')} style={{ cursor: 'pointer', color: '#6ee7b7', fontWeight: 'bold' }}>✕</span>
-              </div>
-            )}
-
-            {/* Split Form & Table View */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
-              
-              {/* Form Card */}
-              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px' }}>
-                <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Issue Sales Challan</h3>
-                <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', marginBottom: '18px' }}>Deducts inventory stock transactionally</p>
-
-                <form onSubmit={handleDispatch} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', marginBottom: '6px' }}>SELECT PARTNER</label>
-                    <select
-                      value={selectedPartner}
-                      onChange={(e) => setSelectedPartner(e.target.value)}
-                      style={{ width: '100%', padding: '9px 12px', backgroundColor: '#0a0d18', border: '1px solid #3b82f6', borderRadius: '6px', color: '#ffffff', fontSize: '12px', outline: 'none' }}
-                    >
-                      <option value="">-- Choose Consignee --</option>
-                      {customersList.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} ({c.business})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Dynamic Product Lines */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <label style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>PRODUCT LINE</label>
-                      <span onClick={handleAddLine} style={{ fontSize: '11px', color: '#6366f1', cursor: 'pointer', fontWeight: 600 }}>+ Add Line</span>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {lineItems.map((item, idx) => (
-                        <div key={item.id} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <select
-                            value={item.productId}
-                            onChange={(e) => handleUpdateLine(idx, 'productId', e.target.value)}
-                            style={{ flex: 1, padding: '9px 12px', backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '6px', color: '#ffffff', fontSize: '12px', outline: 'none' }}
-                          >
-                            <option value="">Select Item...</option>
-                            {productsList.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name} (Stock: {p.stock})
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            type="number"
-                            min="1"
-                            value={item.qty}
-                            onChange={(e) => handleUpdateLine(idx, 'qty', e.target.value)}
-                            style={{ width: '60px', padding: '9px', backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '6px', color: '#ffffff', fontSize: '12px', textAlign: 'center', outline: 'none' }}
-                          />
-                          {lineItems.length > 1 && (
-                            <button 
-                              type="button" 
-                              onClick={() => handleRemoveLine(idx)}
-                              style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px' }}>
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', marginBottom: '6px' }}>DISPATCH STATE</label>
-                    <select
-                      value={dispatchState}
-                      onChange={(e) => setDispatchState(e.target.value)}
-                      style={{ width: '100%', padding: '9px 12px', backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '6px', color: '#ffffff', fontSize: '12px', outline: 'none' }}
-                    >
-                      <option value="Confirmed (Immediate Stock Reduction)">Confirmed (Immediate Stock Reduction)</option>
-                      <option value="Pending Allocation">Pending Allocation</option>
-                    </select>
-                  </div>
-
-                  <button
-                    type="submit"
-                    style={{ width: '100%', padding: '11px', backgroundColor: '#6366f1', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '13px', cursor: 'pointer', marginTop: '6px', transition: '0.2s' }}
-                  >
-                    Process Challan Dispatch
-                  </button>
-                </form>
-              </div>
-
-              {/* Records Table Card */}
-              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <div>
-                    <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Challan Dispatch Records</h3>
-                    <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', margin: 0 }}>Click any row to view print-ready dispatch invoice</p>
-                  </div>
-                  <button 
-                    onClick={handleExportPDF}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#94a3b8', fontSize: '12px', cursor: 'pointer' }}>
-                    <span>🖨️</span> Export PDF
-                  </button>
-                </div>
-
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #1e293b', textAlign: 'left', color: '#64748b', fontSize: '10px', letterSpacing: '0.05em' }}>
-                        <th style={{ padding: '8px 10px' }}>CHALLAN #</th>
-                        <th style={{ padding: '8px 10px' }}>CUSTOMER</th>
-                        <th style={{ padding: '8px 10px' }}>TOTAL QTY</th>
-                        <th style={{ padding: '8px 10px' }}>STATUS</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>VOUCHER</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {records.map((r) => (
-                        <tr key={r.id} style={{ borderBottom: '1px solid #1e293b66', color: '#cbd5e1' }}>
-                          <td style={{ padding: '10px', color: '#38bdf8', fontFamily: 'monospace' }}>{r.id}</td>
-                          <td style={{ padding: '10px', color: '#ffffff' }}>{r.customer}</td>
-                          <td style={{ padding: '10px', color: '#94a3b8' }}>{r.qty} units</td>
-                          <td style={{ padding: '10px' }}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#064e3b33', color: '#34d399', fontSize: '11px', border: '1px solid #065f46' }}>
-                              ● {r.status}
-                            </span>
-                          </td>
-                          <td style={{ padding: '10px', textAlign: 'right' }}>
-                            <button 
-                              onClick={() => setActiveInvoice(r)}
-                              style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '11px', textDecoration: 'underline' }}>
-                              View Invoice
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-            </div>
-          </main>
-        )}
-
-        {/* Tab 2: Inventory & Stocks View */}
-        {activeTab === 'inventory' && (
-          <main style={{ padding: '24px 28px' }}>
-            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div>
-                  <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Warehouse Inventory</h2>
-                  <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Real-time SKU balances & safety threshold control</p>
-                </div>
-                <button 
-                  onClick={() => alert('New SKU modal opening...')}
-                  style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#ffffff', borderRadius: '6px', border: 'none', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
-                  + Add New Stock
-                </button>
-              </div>
-
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #1e293b', textAlign: 'left', color: '#64748b', fontSize: '11px' }}>
-                    <th style={{ padding: '10px' }}>PRODUCT NAME</th>
-                    <th style={{ padding: '10px' }}>CATEGORY</th>
-                    <th style={{ padding: '10px' }}>CURRENT STOCK</th>
-                    <th style={{ padding: '10px' }}>THRESHOLD</th>
-                    <th style={{ padding: '10px' }}>STATUS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {productsList.map((p) => (
-                    <tr key={p.id} style={{ borderBottom: '1px solid #1e293b66' }}>
-                      <td style={{ padding: '12px 10px', color: '#ffffff', fontWeight: 500 }}>{p.name}</td>
-                      <td style={{ padding: '12px 10px', color: '#94a3b8' }}>{p.category}</td>
-                      <td style={{ padding: '12px 10px', color: '#38bdf8', fontWeight: 'bold' }}>{p.stock} units</td>
-                      <td style={{ padding: '12px 10px', color: '#64748b' }}>{p.minThreshold} units</td>
-                      <td style={{ padding: '12px 10px' }}>
-                        {p.stock <= p.minThreshold ? (
-                          <span style={{ padding: '3px 8px', borderRadius: '12px', backgroundColor: '#7f1d1d44', color: '#f87171', fontSize: '11px', border: '1px solid #991b1b' }}>Low Stock</span>
-                        ) : (
-                          <span style={{ padding: '3px 8px', borderRadius: '12px', backgroundColor: '#064e3b44', color: '#34d399', fontSize: '11px', border: '1px solid #065f46' }}>Adequate</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </main>
-        )}
-
-        {/* Tab 3: Customer CRM View */}
-        {activeTab === 'crm' && (
-          <main style={{ padding: '24px 28px' }}>
-            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '24px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Registered Customer Directory</h2>
-              <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', marginBottom: '20px' }}>Verified commercial distributors & dispatch accounts</p>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-                {customersList.map((c) => (
-                  <div key={c.id} style={{ backgroundColor: '#090d16', border: '1px solid #1e293b', borderRadius: '8px', padding: '16px' }}>
-                    <div style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff' }}>{c.name}</div>
-                    <div style={{ fontSize: '12px', color: '#38bdf8', marginTop: '2px' }}>{c.business}</div>
-                    <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '12px' }}>📞 {c.phone}</div>
-                    <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>✉️ {c.email}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </main>
-        )}
-
+      {/* Navigation */}
+      <div className="flex border-b bg-white px-6 gap-6">
+        <button 
+          onClick={() => setActiveTab('crm')} 
+          className={`py-3 text-sm font-semibold border-b-2 ${activeTab === 'crm' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>
+          Customer CRM
+        </button>
+        <button 
+          onClick={() => setActiveTab('inventory')} 
+          className={`py-3 text-sm font-semibold border-b-2 ${activeTab === 'inventory' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>
+          Products & Inventory
+        </button>
+        <button 
+          onClick={() => setActiveTab('challan')} 
+          className={`py-3 text-sm font-semibold border-b-2 ${activeTab === 'challan' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>
+          Sales Challan
+        </button>
       </div>
 
-      {/* Invoice Modal for "View Invoice" click */}
-      {activeInvoice && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ width: '480px', backgroundColor: '#0f1422', border: '1px solid #334155', borderRadius: '12px', padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b', paddingBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '16px', color: '#ffffff' }}>Dispatch Invoice: {activeInvoice.id}</h3>
-              <button 
-                onClick={() => setActiveInvoice(null)}
-                style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '16px', cursor: 'pointer' }}>✕</button>
+      <main className="p-6 max-w-7xl mx-auto">
+        {/* CRM TAB */}
+        {activeTab === 'crm' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <h3 className="text-lg font-bold mb-4">Add Customer</h3>
+              <form onSubmit={createCustomer} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input placeholder="Customer Name *" className="border p-2 rounded" required value={custForm.customer_name} onChange={e => setCustForm({...custForm, customer_name: e.target.value})} />
+                <input placeholder="Mobile Number *" className="border p-2 rounded" required value={custForm.mobile_number} onChange={e => setCustForm({...custForm, mobile_number: e.target.value})} />
+                <input placeholder="Email *" className="border p-2 rounded" required value={custForm.email} onChange={e => setCustForm({...custForm, email: e.target.value})} />
+                <input placeholder="Business Name *" className="border p-2 rounded" required value={custForm.business_name} onChange={e => setCustForm({...custForm, business_name: e.target.value})} />
+                <select className="border p-2 rounded" value={custForm.customer_type} onChange={e => setCustForm({...custForm, customer_type: e.target.value})}>
+                  <option value="Retail">Retail</option>
+                  <option value="Wholesale">Wholesale</option>
+                  <option value="Distributor">Distributor</option>
+                </select>
+                <input placeholder="Address" className="border p-2 rounded" value={custForm.address} onChange={e => setCustForm({...custForm, address: e.target.value})} />
+                <input type="date" className="border p-2 rounded" value={custForm.follow_up_date} onChange={e => setCustForm({...custForm, follow_up_date: e.target.value})} />
+                <input placeholder="Initial Notes" className="border p-2 rounded col-span-2" value={custForm.notes} onChange={e => setCustForm({...custForm, notes: e.target.value})} />
+                <button type="submit" className="bg-blue-600 text-white rounded font-semibold py-2 md:col-span-3">Save Customer</button>
+              </form>
             </div>
 
-            <div style={{ padding: '18px 0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div><span style={{ color: '#64748b' }}>Consignee:</span> <strong style={{ color: '#ffffff' }}>{activeInvoice.customer}</strong></div>
-              <div><span style={{ color: '#64748b' }}>Date:</span> <strong style={{ color: '#ffffff' }}>{activeInvoice.date}</strong></div>
-              <div><span style={{ color: '#64748b' }}>Quantity Dispatched:</span> <strong style={{ color: '#38bdf8' }}>{activeInvoice.qty} Units</strong></div>
-              <div><span style={{ color: '#64748b' }}>Status:</span> <span style={{ color: '#34d399', fontWeight: 'bold' }}>● {activeInvoice.status}</span></div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-              <button 
-                onClick={() => window.print()}
-                style={{ flex: 1, padding: '10px', backgroundColor: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-                Print Voucher
-              </button>
-              <button 
-                onClick={() => setActiveInvoice(null)}
-                style={{ padding: '10px 16px', backgroundColor: '#1e293b', color: '#94a3b8', border: '1px solid #334155', borderRadius: '6px', cursor: 'pointer' }}>
-                Close
-              </button>
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold">Customers</h3>
+                <input 
+                  placeholder="Search by customer/business name..." 
+                  className="border p-2 rounded w-64 text-sm"
+                  value={searchCust}
+                  onChange={e => setSearchCust(e.target.value)}
+                />
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-100 text-slate-600">
+                    <tr>
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Business</th>
+                      <th className="p-3">Contact</th>
+                      <th className="p-3">Type</th>
+                      <th className="p-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCustomers.map(c => (
+                      <tr key={c.id} className="border-b">
+                        <td className="p-3 font-semibold">{c.customer_name}</td>
+                        <td className="p-3">{c.business_name}</td>
+                        <td className="p-3">{c.mobile_number}</td>
+                        <td className="p-3">{c.customer_type}</td>
+                        <td className="p-3"><span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">{c.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
+        {/* INVENTORY TAB */}
+        {activeTab === 'inventory' && (
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <h3 className="text-lg font-bold mb-4">Products & Stock Alerts</h3>
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-100 text-slate-600">
+                <tr>
+                  <th className="p-3">SKU</th>
+                  <th className="p-3">Product Name</th>
+                  <th className="p-3">Category</th>
+                  <th className="p-3">Price</th>
+                  <th className="p-3">Current Stock</th>
+                  <th className="p-3">Min Alert</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.map(p => (
+                  <tr key={p.id} className={`border-b ${p.current_stock <= p.min_stock_alert ? 'bg-red-50' : ''}`}>
+                    <td className="p-3 font-mono">{p.sku}</td>
+                    <td className="p-3 font-semibold">{p.product_name}</td>
+                    <td className="p-3">{p.category}</td>
+                    <td className="p-3 font-semibold">₹{p.unit_price}</td>
+                    <td className="p-3 font-bold">{p.current_stock}</td>
+                    <td className="p-3 text-gray-500">{p.min_stock_alert}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* CHALLAN TAB */}
+        {activeTab === 'challan' && (
+          <div className="bg-white p-6 rounded-lg shadow-sm border space-y-4">
+            <h3 className="text-lg font-bold">Generate Sales Challan</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold mb-1">Select Customer</label>
+                <select className="border p-2 rounded w-full" value={selectedCustId} onChange={e => setSelectedCustId(e.target.value)}>
+                  <option value="">-- Choose Customer --</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id}>{c.customer_name} ({c.business_name})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1">Status</label>
+                <select className="border p-2 rounded w-full" value={challanStatus} onChange={e => setChallanStatus(e.target.value)}>
+                  <option value="Draft">Draft</option>
+                  <option value="Confirmed">Confirmed (Reduces Stock)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="font-semibold text-sm text-slate-700">Products</h4>
+              {challanItems.map((item, idx) => (
+                <div key={idx} className="flex gap-4 items-center">
+                  <select 
+                    className="border p-2 rounded flex-1"
+                    value={item.product_id}
+                    onChange={e => {
+                      const newItems = [...challanItems];
+                      newItems[idx].product_id = e.target.value;
+                      setChallanItems(newItems);
+                    }}>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.product_name} (Stock: {p.current_stock})</option>
+                    ))}
+                  </select>
+                  <input 
+                    type="number" 
+                    min="1" 
+                    value={item.quantity} 
+                    className="border p-2 rounded w-24"
+                    onChange={e => {
+                      const newItems = [...challanItems];
+                      newItems[idx].quantity = parseInt(e.target.value, 10) || 1;
+                      setChallanItems(newItems);
+                    }}
+                  />
+                  <button 
+                    onClick={() => setChallanItems(challanItems.filter((_, i) => i !== idx))}
+                    className="text-red-600 font-semibold px-2">
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button onClick={addChallanRow} className="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded font-medium">
+                + Add Product Row
+              </button>
+            </div>
+
+            <button onClick={submitChallan} className="bg-emerald-600 text-white px-6 py-2 rounded font-bold hover:bg-emerald-700">
+              Submit Sales Challan
+            </button>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

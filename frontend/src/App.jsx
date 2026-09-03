@@ -1,485 +1,309 @@
-﻿import React, { useState, useEffect } from 'react';
-
-const API_BASE = 'https://fundsroom-api-twtt.onrender.com/api';
+import React, { useState } from 'react';
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem('token') || '');
-  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
-  const [activeTab, setActiveTab] = useState('challans');
+  // Top Counters as seen in Image 2
+  const [customerAccounts, setCustomerAccounts] = useState(2);
+  const [warehouseUnits, setWarehouseUnits] = useState(19);
+  const [lowStockWarnings, setLowStockWarnings] = useState(3);
+  const [challansCount, setChallansCount] = useState(10);
 
-  const [email, setEmail] = useState('sales@fundsweb.in');
-  const [password, setPassword] = useState('Password@123');
-  const [authError, setAuthError] = useState('');
+  // Success Banner State
+  const [successMsg, setSuccessMsg] = useState('Sales Challan CH-082203 recorded successfully!');
 
-  const [customers, setCustomers] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [challans, setChallans] = useState([]);
-  const [movements, setMovements] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  // Dropdown Data
+  const customersList = [
+    { id: '1', name: 'Vikram Patel', business: 'Patel Logistics' },
+    { id: '2', name: 'Rajesh Sharma', business: 'Sharma Enterprises' }
+  ];
 
-  const [showAddCustomer, setShowAddCustomer] = useState(false);
-  const [showAddProduct, setShowAddProduct] = useState(false);
-  const [selectedCustDetail, setSelectedCustDetail] = useState(null);
-  const [activeInvoice, setActiveInvoice] = useState(null);
-  const [statusMsg, setStatusMsg] = useState({ type: '', text: '' });
+  const productsList = [
+    { id: 'p1', name: 'Heavy Duty Pallet Racks', stock: 10 },
+    { id: 'p2', name: 'Hydraulic Forklift Pallet Truck 2.5T', stock: 6 },
+    { id: 'p3', name: 'Barcode Scanner Pro Wireless', stock: 3 }
+  ];
 
-  const [custForm, setCustForm] = useState({
-    customer_name: '', business_name: '', email: '', mobile_number: '',
-    gst_number: '', customer_type: 'Distributor', status: 'Active', notes: ''
-  });
+  // Form State
+  const [selectedPartner, setSelectedPartner] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [dispatchState, setDispatchState] = useState('Confirmed (Immediate Stock Reduction)');
 
-  const [prodForm, setProdForm] = useState({
-    product_name: '', sku: '', category: 'Precision Electronics', unit_price: '',
-    current_stock: '', min_stock_alert: '5', warehouse_location: 'Bay 02 - Rack B'
-  });
+  // Challan Dispatch Records Table Data (exact from Image 2)
+  const [records, setRecords] = useState([
+    { id: 'CH-082203', customer: 'Vikram Patel', qty: '1 units', status: 'Confirmed' },
+    { id: 'CH-061853', customer: 'Rajesh Sharma', qty: '1 units', status: 'Confirmed' },
+    { id: 'CH-756822', customer: 'Vikram Patel', qty: '3 units', status: 'Confirmed' },
+    { id: 'CH-735081', customer: 'Vikram Patel', qty: '3 units', status: 'Confirmed' },
+    { id: 'CH-732341', customer: 'Vikram Patel', qty: '3 units', status: 'Confirmed' },
+    { id: 'CH-539689', customer: 'Rajesh Sharma', qty: '5 units', status: 'Confirmed' },
+    { id: 'CH-519621', customer: 'Rajesh Sharma', qty: '3 units', status: 'Confirmed' },
+    { id: 'CH-492626', customer: 'Rajesh Sharma', qty: '2 units', status: 'Confirmed' },
+    { id: 'CH-491595', customer: 'Rajesh Sharma', qty: '2 units', status: 'Confirmed' },
+    { id: 'CH-488480', customer: 'Rajesh Sharma', qty: '2 units', status: 'Confirmed' }
+  ]);
 
-  const [challanCust, setChallanCust] = useState('');
-  const [challanStatus, setChallanStatus] = useState('Confirmed');
-  const [challanLines, setChallanLines] = useState([{ product_id: '', quantity: 1 }]);
-
-  const handleLogin = async (e) => {
+  // Handle Form Submission
+  const handleDispatch = (e) => {
     e.preventDefault();
-    setAuthError('');
-    try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.message || 'Authentication failed');
-      setToken(data.token);
-      setUser(data.user);
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-    } catch (err) {
-      setAuthError(err.message);
+    if (!selectedPartner) {
+      alert('Please select a partner / consignee');
+      return;
     }
-  };
-
-  const handleLogout = () => {
-    setToken('');
-    setUser(null);
-    localStorage.clear();
-  };
-
-  const loadData = async () => {
-    if (!token) return;
-    try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const [cRes, pRes, chRes] = await Promise.all([
-        fetch(`${API_BASE}/customers`, { headers }),
-        fetch(`${API_BASE}/products`, { headers }),
-        fetch(`${API_BASE}/challans`, { headers })
-      ]);
-      const [c, p, ch] = await Promise.all([cRes.json(), pRes.json(), chRes.json()]);
-      if (c.success) setCustomers(c.customers);
-      if (p.success) setProducts(p.products);
-      if (ch.success) setChallans(ch.challans);
-
-      const mRes = await fetch(`${API_BASE}/products/movements`, { headers });
-      const m = await mRes.json();
-      if (m.success) setMovements(m.movements);
-    } catch (e) {
-      console.error(e);
+    if (!selectedProduct) {
+      alert('Please select a product');
+      return;
     }
+
+    const partnerObj = customersList.find((c) => c.id === selectedPartner);
+    const newChallanId = `CH-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const newRecord = {
+      id: newChallanId,
+      customer: partnerObj ? partnerObj.name : 'Vikram Patel',
+      qty: `${quantity} units`,
+      status: 'Confirmed'
+    };
+
+    setRecords([newRecord, ...records]);
+    setChallansCount((prev) => prev + 1);
+    setWarehouseUnits((prev) => Math.max(0, prev - Number(quantity)));
+    setSuccessMsg(`Sales Challan ${newChallanId} recorded successfully!`);
+
+    // Reset Form fields
+    setSelectedPartner('');
+    setSelectedProduct('');
+    setQuantity(1);
   };
-
-  useEffect(() => { loadData(); }, [token, activeTab]);
-
-  const addChallanLine = () => setChallanLines([...challanLines, { product_id: '', quantity: 1 }]);
-  const removeChallanLine = (idx) => challanLines.length > 1 && setChallanLines(challanLines.filter((_, i) => i !== idx));
-  const updateChallanLine = (idx, field, val) => {
-    const copy = [...challanLines];
-    copy[idx][field] = val;
-    setChallanLines(copy);
-  };
-
-  const handleCreateChallan = async (e) => {
-    e.preventDefault();
-    setStatusMsg({ type: '', text: '' });
-    try {
-      const items = challanLines.map(line => ({ product_id: Number(line.product_id), quantity: Number(line.quantity) }));
-      const res = await fetch(`${API_BASE}/challans`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ customer_id: Number(challanCust), status: challanStatus, items })
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.message);
-      setStatusMsg({ type: 'success', text: `Sales Challan ${data.challan?.challan_number || ''} recorded successfully!` });
-      setChallanLines([{ product_id: '', quantity: 1 }]);
-      setChallanCust('');
-      loadData();
-    } catch (err) {
-      setStatusMsg({ type: 'error', text: err.message });
-    }
-  };
-
-  const filteredCustomers = customers.filter(c =>
-    c.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.business_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.email?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const totalStockUnits = products.reduce((acc, p) => acc + Number(p.current_stock || 0), 0);
-  const lowStockCount = products.filter(p => Number(p.current_stock) <= Number(p.min_stock_alert)).length;
-
-  if (!token) {
-    return (
-      <div className="min-h-screen bg-[#060a12] flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-indigo-600/20 rounded-full blur-[120px] pointer-events-none"></div>
-        <div className="bg-[#0e1626]/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl relative z-10">
-          <div className="text-center mb-8">
-            <div className="inline-flex h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white items-center justify-center font-black text-xl mb-3 shadow-lg shadow-indigo-500/30">FR</div>
-            <h1 className="text-2xl font-black text-white tracking-tight">Fundsroom Portal</h1>
-            <p className="text-xs text-slate-400 mt-1">Enterprise Mini ERP, CRM & Inventory Suite</p>
-            <p className="text-xs text-indigo-400 font-medium tracking-wide mt-1.5">Developed by Sujal Singhal</p>
-          </div>
-          {authError && <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs">{authError}</div>}
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Work Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} required className="w-full bg-[#131d31] border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none transition" />
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Password</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full bg-[#131d31] border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none transition" />
-            </div>
-            <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/30 text-xs transition active:scale-[0.99]">
-              Enter Workspace
-            </button>
-          </form>
-          <div className="mt-6 pt-5 border-t border-slate-800/80 text-[11px] text-slate-400 flex justify-between">
-            <span>Fast Role:</span>
-            <span className="text-indigo-400 cursor-pointer hover:underline" onClick={() => setEmail('sales@fundsweb.in')}>Sales</span>
-            <span className="text-indigo-400 cursor-pointer hover:underline" onClick={() => setEmail('warehouse@fundsweb.in')}>Warehouse</span>
-            <span className="text-indigo-400 cursor-pointer hover:underline" onClick={() => setEmail('admin@fundsweb.in')}>Admin</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col md:flex-row antialiased selection:bg-indigo-600 selection:text-white">
-      {/* Sleek Enterprise Sidebar */}
-      <aside className="w-full md:w-64 bg-[#0a101d] border-r border-slate-800/80 p-5 flex flex-col justify-between shrink-0">
+    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#090d16', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      {/* Sidebar */}
+      <aside style={{ width: '260px', backgroundColor: '#0f1422', borderRight: '1px solid #1e293b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '20px 16px' }}>
         <div>
-          <div className="flex items-center space-x-3 mb-8 px-2">
-            <div className="h-10 w-10 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center font-black text-white text-lg shadow-lg shadow-indigo-500/25">FR</div>
+          {/* Brand Logo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+            <div style={{ width: '42px', height: '42px', backgroundColor: '#4f46e5', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#ffffff', fontSize: '18px' }}>
+              FR
+            </div>
             <div>
-              <div className="font-extrabold text-sm tracking-tight text-white flex items-center gap-1.5">
-                Fundsroom <span className="bg-indigo-500/10 text-indigo-400 text-[10px] font-black px-1.5 py-0.5 rounded border border-indigo-500/20">PRO</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontWeight: 700, fontSize: '15px', color: '#ffffff' }}>Fundsroom</span>
+                <span style={{ backgroundColor: '#3b82f6', color: '#ffffff', fontSize: '10px', fontWeight: 'bold', padding: '2px 5px', borderRadius: '4px' }}>PRO</span>
               </div>
-              <div className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">Operations Suite</div>
+              <div style={{ fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', marginTop: '3px' }}>OPERATIONS SUITE</div>
             </div>
           </div>
 
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-3 mb-3">Enterprise Core</div>
-          <nav className="space-y-1.5">
-            <button onClick={() => setActiveTab('challans')} className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition ${activeTab === 'challans' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-[#111a2e] hover:text-slate-200'}`}>
-              <span className="flex items-center space-x-2.5"><span>📄</span><span>Sales Challans</span></span>
-              <span className="text-[10px] bg-slate-900/80 px-2 py-0.5 rounded-full font-mono">{challans.length}</span>
+          {/* Nav Section */}
+          <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', marginBottom: '12px' }}>
+            ENTERPRISE CORE
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <button style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#4f46e5', color: '#ffffff', borderRadius: '8px', border: 'none', fontWeight: 500, fontSize: '13px', cursor: 'pointer' }}>
+              <span>📄 Sales Challans</span>
+              <span style={{ backgroundColor: '#1e1b4b', color: '#ffffff', fontSize: '11px', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>{challansCount}</span>
             </button>
-            <button onClick={() => setActiveTab('inventory')} className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition ${activeTab === 'inventory' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-[#111a2e] hover:text-slate-200'}`}>
-              <span className="flex items-center space-x-2.5"><span>📦</span><span>Inventory & Stocks</span></span>
-              {lowStockCount > 0 && <span className="text-[10px] bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full font-bold">!</span>}
+            <button style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: 'transparent', color: '#94a3b8', borderRadius: '8px', border: 'none', fontSize: '13px', cursor: 'pointer' }}>
+              <span>📦 Inventory & Stocks</span>
+              <span style={{ backgroundColor: '#7f1d1d', color: '#fca5a5', fontSize: '10px', padding: '2px 6px', borderRadius: '12px' }}>!</span>
             </button>
-            <button onClick={() => setActiveTab('crm')} className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition ${activeTab === 'crm' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-[#111a2e] hover:text-slate-200'}`}>
-              <span className="flex items-center space-x-2.5"><span>👥</span><span>Customer CRM</span></span>
-              <span className="text-[10px] bg-slate-900/80 px-2 py-0.5 rounded-full font-mono">{customers.length}</span>
+            <button style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: 'transparent', color: '#94a3b8', borderRadius: '8px', border: 'none', fontSize: '13px', cursor: 'pointer' }}>
+              <span>👥 Customer CRM</span>
+              <span style={{ color: '#64748b', fontSize: '11px' }}>{customerAccounts}</span>
             </button>
-          </nav>
+          </div>
         </div>
 
-        <div className="pt-6 border-t border-slate-800/80 mt-6 px-2">
-          <div className="flex items-center justify-between mb-3">
+        {/* Profile Card */}
+        <div style={{ borderTop: '1px solid #1e293b', paddingTop: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <div>
-              <div className="text-xs font-bold text-slate-200">{user?.name || 'Authorized User'}</div>
-              <div className="text-[10px] text-indigo-400 uppercase font-semibold">{user?.role || 'Sales'} Persona</div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: '#ffffff' }}>Sales Lead</div>
+              <div style={{ fontSize: '10px', color: '#38bdf8', letterSpacing: '0.05em' }}>SALES PERSONA</div>
             </div>
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20"></span>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
           </div>
-          <button onClick={handleLogout} className="w-full bg-[#111a2e] hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/30 text-slate-400 text-xs font-medium py-2 rounded-xl transition border border-slate-800">
+          <button style={{ width: '100%', padding: '8px', backgroundColor: '#1e293b', color: '#94a3b8', border: '1px solid #334155', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}>
             Terminate Session
           </button>
         </div>
       </aside>
 
-      {/* Main Workspace Area */}
-      <div className="flex-1 flex flex-col min-w-0 bg-[#060a12] overflow-y-auto">
-        <header className="h-16 border-b border-slate-800/80 px-8 flex items-center justify-between shrink-0 bg-[#0a101d]/60 backdrop-blur sticky top-0 z-30">
-          <div className="flex items-center space-x-2 text-xs text-slate-400 font-medium">
-            <span>Workspace</span>
-            <span className="text-slate-600">/</span>
-            <span className="text-white capitalize font-semibold">{activeTab} View</span>
+      {/* Main Panel */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Top Header */}
+        <header style={{ height: '56px', borderBottom: '1px solid #1e293b', padding: '0 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#0c101d' }}>
+          <div style={{ fontSize: '12px', color: '#64748b' }}>
+            Workspace / <span style={{ color: '#cbd5e1', fontWeight: 500 }}>Challans View</span>
           </div>
-          <div className="flex items-center space-x-3">
-            <span className="text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full font-medium flex items-center space-x-1.5 shadow-sm shadow-emerald-500/10">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>Neon Cloud DB Live</span>
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#34d399', backgroundColor: '#064e3b33', padding: '4px 10px', borderRadius: '6px', border: '1px solid #065f46' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
+            Neon Cloud DB Live
           </div>
         </header>
 
-        <main className="p-8 max-w-7xl w-full mx-auto space-y-8">
-          {/* Glowing Metric KPIs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-[#0b1220] border border-slate-800/80 hover:border-indigo-500/30 rounded-2xl p-5 transition group">
-              <div className="flex justify-between items-start">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Customer Accounts</span>
-                <span className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 text-xs">👥</span>
+        {/* Content Body */}
+        <main style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Top 4 Metrics Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+            {/* Metric 1 */}
+            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>CUSTOMER ACCOUNTS</span>
+                <span style={{ fontSize: '14px', color: '#6366f1' }}>👥</span>
               </div>
-              <div className="text-2xl font-black text-white mt-2 group-hover:text-indigo-300 transition">{customers.length}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Verified partner entities</div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{customerAccounts}</div>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Verified partner entities</div>
             </div>
 
-            <div className="bg-[#0b1220] border border-slate-800/80 hover:border-emerald-500/30 rounded-2xl p-5 transition group">
-              <div className="flex justify-between items-start">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Warehouse Total Units</span>
-                <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 text-xs">📦</span>
+            {/* Metric 2 */}
+            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>WAREHOUSE TOTAL UNITS</span>
+                <span style={{ fontSize: '14px', color: '#f59e0b' }}>📦</span>
               </div>
-              <div className="text-2xl font-black text-white mt-2 group-hover:text-emerald-300 transition">{totalStockUnits}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Live physical count</div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{warehouseUnits}</div>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Live physical count</div>
             </div>
 
-            <div className="bg-[#0b1220] border border-slate-800/80 hover:border-rose-500/30 rounded-2xl p-5 transition group">
-              <div className="flex justify-between items-start">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Low Stock Warnings</span>
-                <span className="p-2 rounded-xl bg-rose-500/10 text-rose-400 text-xs">⚠️</span>
+            {/* Metric 3 */}
+            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>LOW STOCK WARNINGS</span>
+                <span style={{ fontSize: '14px', color: '#ef4444' }}>⚠️</span>
               </div>
-              <div className={`text-2xl font-black mt-2 ${lowStockCount > 0 ? 'text-rose-400' : 'text-white'}`}>{lowStockCount}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Below minimum threshold</div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{lowStockWarnings}</div>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Below minimum threshold</div>
             </div>
 
-            <div className="bg-[#0b1220] border border-slate-800/80 hover:border-purple-500/30 rounded-2xl p-5 transition group">
-              <div className="flex justify-between items-start">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Challans Generated</span>
-                <span className="p-2 rounded-xl bg-purple-500/10 text-purple-400 text-xs">📄</span>
+            {/* Metric 4 */}
+            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>CHALLANS GENERATED</span>
+                <span style={{ fontSize: '14px', color: '#8b5cf6' }}>📄</span>
               </div>
-              <div className="text-2xl font-black text-white mt-2 group-hover:text-purple-300 transition">{challans.length}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Audit log records</div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{challansCount}</div>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Audit log records</div>
             </div>
           </div>
 
-          {statusMsg.text && (
-            <div className={`p-4 rounded-xl text-xs font-semibold border flex justify-between items-center ${statusMsg.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
-              <span>{statusMsg.text}</span>
-              <button onClick={() => setStatusMsg({ type: '', text: '' })} className="font-bold">✕</button>
+          {/* Green Alert Banner */}
+          {successMsg && (
+            <div style={{ backgroundColor: '#064e3b40', border: '1px solid #065f46', borderRadius: '8px', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#34d399', fontSize: '13px' }}>
+              <span>{successMsg}</span>
+              <span onClick={() => setSuccessMsg('')} style={{ cursor: 'pointer', color: '#6ee7b7', fontWeight: 'bold' }}>✕</span>
             </div>
           )}
 
-          {/* TAB 1: SALES CHALLANS */}
-          {activeTab === 'challans' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="bg-[#0b1220] border border-slate-800 rounded-3xl p-6 lg:col-span-1 shadow-xl">
-                <h3 className="font-bold text-base text-white mb-1">Issue Sales Challan</h3>
-                <p className="text-xs text-slate-400 mb-5">Deducts inventory stock transactionally</p>
+          {/* Form & Table Row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
+            {/* Issue Sales Challan Form Card */}
+            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Issue Sales Challan</h3>
+              <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', marginBottom: '18px' }}>Deducts inventory stock transactionally</p>
 
-                <form onSubmit={handleCreateChallan} className="space-y-4">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1.5">Select Partner</label>
-                    <select value={challanCust} onChange={e => setChallanCust(e.target.value)} required className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none">
-                      <option value="">-- Choose Consignee --</option>
-                      {customers.map(c => <option key={c.id} value={c.id}>{c.customer_name} ({c.business_name})</option>)}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2.5">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase">Product Line</label>
-                      <button type="button" onClick={addChallanLine} className="text-[11px] text-indigo-400 hover:text-indigo-300 font-bold">+ Add Line</button>
-                    </div>
-
-                    {challanLines.map((line, idx) => (
-                      <div key={idx} className="p-2.5 bg-[#111a2e] border border-slate-800 rounded-xl flex gap-2 items-center">
-                        <select value={line.product_id} onChange={e => updateChallanLine(idx, 'product_id', e.target.value)} required className="w-2/3 bg-[#0b1220] border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none">
-                          <option value="">Select Item...</option>
-                          {products.map(p => (
-                            <option key={p.id} value={p.id}>{p.product_name} (Stock: {p.current_stock})</option>
-                          ))}
-                        </select>
-                        <input type="number" min="1" placeholder="Qty" value={line.quantity} onChange={e => updateChallanLine(idx, 'quantity', e.target.value)} required className="w-1/3 bg-[#0b1220] border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none" />
-                        {challanLines.length > 1 && (
-                          <button type="button" onClick={() => removeChallanLine(idx)} className="text-rose-400 font-bold px-1 text-sm">✕</button>
-                        )}
-                      </div>
+              <form onSubmit={handleDispatch} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', marginBottom: '6px' }}>SELECT PARTNER</label>
+                  <select
+                    value={selectedPartner}
+                    onChange={(e) => setSelectedPartner(e.target.value)}
+                    style={{ width: '100%', padding: '9px 12px', backgroundColor: '#0a0d18', border: '1px solid #3b82f6', borderRadius: '6px', color: '#ffffff', fontSize: '12px', outline: 'none' }}
+                  >
+                    <option value="">-- Choose Consignee --</option>
+                    {customersList.map((c) => (
+                      <option key={c.id} value={c.id} style={{ backgroundColor: '#0f1422', color: '#ffffff' }}>
+                        {c.name} ({c.business})
+                      </option>
                     ))}
-                  </div>
+                  </select>
+                </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1.5">Dispatch State</label>
-                    <select value={challanStatus} onChange={e => setChallanStatus(e.target.value)} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none">
-                      <option value="Confirmed">Confirmed (Immediate Stock Reduction)</option>
-                      <option value="Draft">Draft (Hold)</option>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>PRODUCT LINE</label>
+                    <span style={{ fontSize: '11px', color: '#6366f1', cursor: 'pointer' }}>+ Add Line</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <select
+                      value={selectedProduct}
+                      onChange={(e) => setSelectedProduct(e.target.value)}
+                      style={{ flex: 1, padding: '9px 12px', backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '6px', color: '#ffffff', fontSize: '12px', outline: 'none' }}
+                    >
+                      <option value="">Select Item...</option>
+                      {productsList.map((p) => (
+                        <option key={p.id} value={p.id} style={{ backgroundColor: '#0f1422', color: '#ffffff' }}>
+                          {p.name} (Stock: {p.stock})
+                        </option>
+                      ))}
                     </select>
+                    <input
+                      type="number"
+                      min="1"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      style={{ width: '60px', padding: '9px', backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '6px', color: '#ffffff', fontSize: '12px', textAlign: 'center', outline: 'none' }}
+                    />
                   </div>
-
-                  <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/30 transition text-xs active:scale-[0.99]">
-                    Process Challan Dispatch
-                  </button>
-                </form>
-              </div>
-
-              <div className="bg-[#0b1220] border border-slate-800 rounded-3xl p-6 lg:col-span-2 shadow-xl">
-                <div className="flex justify-between items-center mb-6">
-                  <div>
-                    <h3 className="font-bold text-base text-white">Challan Dispatch Records</h3>
-                    <p className="text-xs text-slate-400">Click any row to view print-ready dispatch invoice</p>
-                  </div>
-                  <button onClick={() => window.print()} className="bg-[#111a2e] hover:bg-slate-800 text-slate-300 text-xs font-semibold px-4 py-2 rounded-xl border border-slate-800 transition">
-                    🖨️ Export PDF
-                  </button>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-[#0e1626] text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800">
-                      <tr>
-                        <th className="py-3.5 px-4">Challan #</th>
-                        <th className="py-3.5 px-4">Customer</th>
-                        <th className="py-3.5 px-4">Total Qty</th>
-                        <th className="py-3.5 px-4">Status</th>
-                        <th className="py-3.5 px-4">Voucher</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                      {challans.map(ch => (
-                        <tr key={ch.id} className="hover:bg-[#111a2e]/50 transition">
-                          <td className="py-3.5 px-4 font-mono font-bold text-indigo-400">{ch.challan_number}</td>
-                          <td className="py-3.5 px-4 font-semibold text-slate-200">{ch.customer_name}</td>
-                          <td className="py-3.5 px-4 font-medium text-slate-300">{ch.total_quantity} units</td>
-                          <td className="py-3.5 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${ch.status === 'Confirmed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-800 text-slate-400'}`}>
-                              ● {ch.status}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <button onClick={() => setActiveInvoice(ch)} className="text-indigo-400 hover:text-indigo-300 font-bold underline text-xs">
-                              View Invoice
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', marginBottom: '6px' }}>DISPATCH STATE</label>
+                  <select
+                    value={dispatchState}
+                    onChange={(e) => setDispatchState(e.target.value)}
+                    style={{ width: '100%', padding: '9px 12px', backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '6px', color: '#ffffff', fontSize: '12px', outline: 'none' }}
+                  >
+                    <option value="Confirmed (Immediate Stock Reduction)">Confirmed (Immediate Stock Reduction)</option>
+                    <option value="Draft">Draft Order</option>
+                  </select>
                 </div>
-              </div>
+
+                <button
+                  type="submit"
+                  style={{ width: '100%', padding: '11px', backgroundColor: '#6366f1', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '13px', cursor: 'pointer', marginTop: '6px' }}
+                >
+                  Process Challan Dispatch
+                </button>
+              </form>
             </div>
-          )}
 
-          {/* TAB 2: INVENTORY */}
-          {activeTab === 'inventory' && (
-            <div className="space-y-6">
-              <div className="bg-[#0b1220] border border-slate-800 rounded-3xl shadow-xl overflow-hidden">
-                <div className="p-6 border-b border-slate-800 flex justify-between items-center">
-                  <div>
-                    <h3 className="font-bold text-base text-white">Warehouse Stocks Overview</h3>
-                    <p className="text-xs text-slate-400">Inventory levels across fulfillment locations</p>
-                  </div>
-                  <button onClick={() => setShowAddProduct(true)} className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition">
-                    + Add Product
-                  </button>
+            {/* Challan Dispatch Records Table Card */}
+            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                  <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Challan Dispatch Records</h3>
+                  <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', margin: 0 }}>Click any row to view print-ready dispatch invoice</p>
                 </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-[#0e1626] text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800">
-                      <tr>
-                        <th className="py-4 px-6">SKU Code</th>
-                        <th className="py-4 px-6">Product Description</th>
-                        <th className="py-4 px-6">Category</th>
-                        <th className="py-4 px-6">Stock Status</th>
-                        <th className="py-4 px-6">Unit Price</th>
-                        <th className="py-4 px-6">Location</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                      {products.map(p => (
-                        <tr key={p.id} className="hover:bg-[#111a2e]/50 transition">
-                          <td className="py-4 px-6 font-mono font-bold text-indigo-400">{p.sku}</td>
-                          <td className="py-4 px-6 font-bold text-slate-200 text-xs">{p.product_name}</td>
-                          <td className="py-4 px-6 text-slate-400">{p.category}</td>
-                          <td className="py-4 px-6">
-                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${p.current_stock <= p.min_stock_alert ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
-                              {p.current_stock} units {p.current_stock <= p.min_stock_alert && '— LOW STOCK'}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 font-bold text-slate-200">₹{p.unit_price}</td>
-                          <td className="py-4 px-6 text-slate-400">{p.warehouse_location}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {movements.length > 0 && (
-                <div className="bg-[#0b1220] border border-slate-800 rounded-3xl p-6 shadow-xl">
-                  <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-4">Stock Movement Audit Trail (ACID Records)</h4>
-                  <div className="divide-y divide-slate-800/60">
-                    {movements.map(m => (
-                      <div key={m.id} className="py-2.5 flex justify-between items-center text-xs">
-                        <div className="flex items-center space-x-3">
-                          <span className={`font-black px-2 py-0.5 rounded text-[10px] ${m.movement_type === 'OUT' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
-                            {m.movement_type}
-                          </span>
-                          <span className="font-bold text-slate-200">{m.quantity_changed} units</span>
-                          <span className="text-slate-400">— {m.product_name} ({m.sku}) | {m.reason}</span>
-                        </div>
-                        <span className="font-mono text-slate-500">{new Date(m.created_at).toLocaleTimeString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 3: CUSTOMER CRM */}
-          {activeTab === 'crm' && (
-            <div className="bg-[#0b1220] border border-slate-800 rounded-3xl shadow-xl overflow-hidden">
-              <div className="p-6 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4">
-                <input
-                  type="text"
-                  placeholder="Search customer by name, business or email..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full sm:w-96 bg-[#111a2e] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
-                />
-                <button onClick={() => setShowAddCustomer(true)} className="w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition">
-                  + Add Customer
+                <button style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#94a3b8', fontSize: '12px', cursor: 'pointer' }}>
+                  <span>🖨️</span> Export PDF
                 </button>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-[#0e1626] text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th className="py-4 px-6">Customer / Contact</th>
-                      <th className="py-4 px-6">Business Entity</th>
-                      <th className="py-4 px-6">GST Registration</th>
-                      <th className="py-4 px-6">Type</th>
-                      <th className="py-4 px-6">Status</th>
-                      <th className="py-4 px-6">Action</th>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #1e293b', textAlign: 'left', color: '#64748b', fontSize: '10px', letterSpacing: '0.05em' }}>
+                      <th style={{ padding: '8px 10px' }}>CHALLAN #</th>
+                      <th style={{ padding: '8px 10px' }}>CUSTOMER</th>
+                      <th style={{ padding: '8px 10px' }}>TOTAL QTY</th>
+                      <th style={{ padding: '8px 10px' }}>STATUS</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>VOUCHER</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {filteredCustomers.map(c => (
-                      <tr key={c.id} className="hover:bg-[#111a2e]/50 transition">
-                        <td className="py-4 px-6">
-                          <div className="font-bold text-slate-200 text-xs">{c.customer_name}</div>
-                          <div className="text-slate-400 text-[11px]">{c.email} • {c.mobile_number}</div>
+                  <tbody>
+                    {records.map((r, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #1e293b66', color: '#cbd5e1' }}>
+                        <td style={{ padding: '10px', color: '#38bdf8', fontFamily: 'monospace' }}>{r.id}</td>
+                        <td style={{ padding: '10px', color: '#ffffff' }}>{r.customer}</td>
+                        <td style={{ padding: '10px', color: '#94a3b8' }}>{r.qty}</td>
+                        <td style={{ padding: '10px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#064e3b33', color: '#34d399', fontSize: '11px', border: '1px solid #065f46' }}>
+                            ● {r.status}
+                          </span>
                         </td>
-                        <td className="py-4 px-6 font-semibold text-slate-300">{c.business_name}</td>
-                        <td className="py-4 px-6 font-mono text-slate-400">{c.gst_number || 'Unregistered'}</td>
-                        <td className="py-4 px-6"><span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">{c.customer_type}</span></td>
-                        <td className="py-4 px-6"><span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${c.status === 'Active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>● {c.status}</span></td>
-                        <td className="py-4 px-6">
-                          <button onClick={() => setSelectedCustDetail(c)} className="text-indigo-400 hover:text-indigo-300 font-bold underline">
-                            View Dossier
-                          </button>
+                        <td style={{ padding: '10px', textAlign: 'right' }}>
+                          <span style={{ color: '#38bdf8', cursor: 'pointer', fontSize: '11px', textDecoration: 'underline' }}>View Invoice</span>
                         </td>
                       </tr>
                     ))}
@@ -487,142 +311,9 @@ export default function App() {
                 </table>
               </div>
             </div>
-          )}
-
-          {/* INVOICE MODAL */}
-          {activeInvoice && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-              <div className="bg-[#0b1220] border border-slate-800 rounded-3xl p-6 max-w-xl w-full shadow-2xl">
-                <div className="flex justify-between items-start border-b border-slate-800 pb-3 mb-4">
-                  <div>
-                    <h2 className="text-base font-black text-white">DISPATCH CHALLAN INVOICE</h2>
-                    <p className="text-xs text-indigo-400 font-mono mt-0.5">Ref ID: {activeInvoice.challan_number}</p>
-                  </div>
-                  <button onClick={() => setActiveInvoice(null)} className="text-slate-400 hover:text-white font-bold">✕</button>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-xs mb-4">
-                  <div className="bg-[#111a2e] p-3 rounded-2xl border border-slate-800">
-                    <div className="font-bold text-slate-400 uppercase text-[10px] mb-1">Consignee</div>
-                    <div className="font-bold text-white">{activeInvoice.customer_name}</div>
-                    <div className="text-slate-400">{activeInvoice.business_name}</div>
-                  </div>
-                  <div className="bg-[#111a2e] p-3 rounded-2xl border border-slate-800">
-                    <div className="font-bold text-slate-400 uppercase text-[10px] mb-1">Status Meta</div>
-                    <div className="text-slate-300">State: <span className="font-bold text-emerald-400 uppercase">{activeInvoice.status}</span></div>
-                    <div className="text-slate-400">Date: {new Date(activeInvoice.created_at).toLocaleDateString()}</div>
-                  </div>
-                </div>
-                <div className="border border-slate-800 rounded-2xl overflow-hidden mb-5">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-[#0e1626] border-b border-slate-800 text-slate-400 font-bold uppercase">
-                      <tr>
-                        <th className="p-3">Dispatched Item Description</th>
-                        <th className="p-3">Total Quantity</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="p-3 text-slate-200 font-medium">Standard Industrial Stock Allocation</td>
-                        <td className="p-3 font-bold text-white">{activeInvoice.total_quantity} units</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div className="flex justify-end space-x-2">
-                  <button onClick={() => window.print()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/30">Print PDF</button>
-                  <button onClick={() => setActiveInvoice(null)} className="px-4 py-2 border border-slate-800 text-slate-300 rounded-xl text-xs">Close</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* CUSTOMER DOSSIER */}
-          {selectedCustDetail && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-              <div className="bg-[#0b1220] border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl">
-                <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-4">
-                  <h3 className="font-bold text-white text-sm">Customer Dossier</h3>
-                  <button onClick={() => setSelectedCustDetail(null)} className="text-slate-400">✕</button>
-                </div>
-                <div className="space-y-2.5 text-xs text-slate-300">
-                  <div><span className="text-slate-400">Contact:</span> {selectedCustDetail.customer_name}</div>
-                  <div><span className="text-slate-400">Business:</span> {selectedCustDetail.business_name}</div>
-                  <div><span className="text-slate-400">Email:</span> {selectedCustDetail.email}</div>
-                  <div><span className="text-slate-400">Phone:</span> {selectedCustDetail.mobile_number}</div>
-                  <div><span className="text-slate-400">GST:</span> {selectedCustDetail.gst_number || 'N/A'}</div>
-                  <div className="bg-[#111a2e] p-3 rounded-2xl border border-slate-800 mt-3">
-                    <div className="font-bold text-slate-400 uppercase text-[10px] mb-1">CRM Follow-up Notes</div>
-                    <div className="text-slate-200 italic">{selectedCustDetail.notes || 'Active wholesale account in regular dispatch cycle.'}</div>
-                  </div>
-                </div>
-                <div className="flex justify-end pt-4">
-                  <button onClick={() => setSelectedCustDetail(null)} className="px-4 py-2 bg-[#111a2e] text-slate-200 rounded-xl text-xs font-bold border border-slate-800">Dismiss</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ADD CUSTOMER MODAL */}
-          {showAddCustomer && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-              <div className="bg-[#0b1220] border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl">
-                <h3 className="text-sm font-bold text-white mb-3">Add Customer Account</h3>
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  const res = await fetch(`${API_BASE}/customers`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify(custForm)
-                  });
-                  const d = await res.json();
-                  if (d.success) { setShowAddCustomer(false); loadData(); }
-                }} className="space-y-2.5 text-xs">
-                  <input placeholder="Customer Name *" required value={custForm.customer_name} onChange={e => setCustForm({...custForm, customer_name: e.target.value})} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none" />
-                  <input placeholder="Business Name *" required value={custForm.business_name} onChange={e => setCustForm({...custForm, business_name: e.target.value})} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none" />
-                  <input type="email" placeholder="Email *" required value={custForm.email} onChange={e => setCustForm({...custForm, email: e.target.value})} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none" />
-                  <input placeholder="Mobile *" required value={custForm.mobile_number} onChange={e => setCustForm({...custForm, mobile_number: e.target.value})} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none" />
-                  <input placeholder="GST Number" value={custForm.gst_number} onChange={e => setCustForm({...custForm, gst_number: e.target.value})} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none" />
-                  <div className="flex justify-end space-x-2 pt-2">
-                    <button type="button" onClick={() => setShowAddCustomer(false)} className="px-3 py-1.5 border border-slate-800 rounded-xl text-slate-400">Cancel</button>
-                    <button type="submit" className="px-4 py-1.5 bg-indigo-600 text-white rounded-xl font-bold shadow-md shadow-indigo-600/30">Save</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* ADD PRODUCT MODAL */}
-          {showAddProduct && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-              <div className="bg-[#0b1220] border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl">
-                <h3 className="text-sm font-bold text-white mb-3">Add Product Unit</h3>
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  const res = await fetch(`${API_BASE}/products`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({...prodForm, unit_price: Number(prodForm.unit_price), current_stock: Number(prodForm.current_stock), min_stock_alert: Number(prodForm.min_stock_alert)})
-                  });
-                  const d = await res.json();
-                  if (d.success) { setShowAddProduct(false); loadData(); }
-                }} className="space-y-2.5 text-xs">
-                  <input placeholder="Product Name *" required value={prodForm.product_name} onChange={e => setProdForm({...prodForm, product_name: e.target.value})} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none" />
-                  <input placeholder="SKU *" required value={prodForm.sku} onChange={e => setProdForm({...prodForm, sku: e.target.value})} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none" />
-                  <input type="number" placeholder="Unit Price *" required value={prodForm.unit_price} onChange={e => setProdForm({...prodForm, unit_price: e.target.value})} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none" />
-                  <input type="number" placeholder="Stock Qty *" required value={prodForm.current_stock} onChange={e => setProdForm({...prodForm, current_stock: e.target.value})} className="w-full bg-[#111a2e] border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none" />
-                  <div className="flex justify-end space-x-2 pt-2">
-                    <button type="button" onClick={() => setShowAddProduct(false)} className="px-3 py-1.5 border border-slate-800 rounded-xl text-slate-400">Cancel</button>
-                    <button type="submit" className="px-4 py-1.5 bg-indigo-600 text-white rounded-xl font-bold shadow-md shadow-indigo-600/30">Save</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
+          </div>
         </main>
       </div>
     </div>
   );
 }
-<div className="mt-6 text-center text-xs text-gray-500">
-  Designed & Developed by <span className="text-indigo-400 font-semibold">Sujal Singhal</span>
-</div>

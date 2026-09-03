@@ -45,57 +45,96 @@ router.post('/login', async (req: any, res: any) => {
 
 router.get('/seed-database', async (req: any, res: any) => {
   try {
-    // 1. Detect Customer table columns & Insert Rajesh, Vikram + VIP Clients
+    // 1. Get exact column names of customers table
     const custColsRes = await pool.query(`
-      SELECT column_name, is_nullable, column_default 
+      SELECT column_name 
       FROM information_schema.columns 
-      WHERE table_name = 'customers';
+      WHERE table_name = 'customers' AND column_name != 'id';
     `);
-    const custCols = custColsRes.rows.map((r: any) => r.column_name);
+    const cCols: string[] = custColsRes.rows.map((r: any) => r.column_name);
 
-    if (custCols.length > 0) {
-      const targetCol = custCols.includes('business_name') ? 'business_name' : (custCols.includes('name') ? 'name' : custCols[1]);
-      
-      await pool.query(`
-        INSERT INTO customers (${targetCol}) VALUES 
-        ('Rajesh Sharma (Sharma Enterprises)'),
-        ('Vikram Patel (Patel Logistics)'),
-        ('Apex Logistics Pvt Ltd'),
-        ('Reliance Retail Hub'),
-        ('BlueDart Express Hub')
-        ON CONFLICT DO NOTHING;
-      `);
+    const clientRows = [
+      { name: 'Vikram Patel', biz: 'Patel Logistics' },
+      { name: 'Rajesh Sharma', biz: 'Sharma Enterprises' },
+      { name: 'Apex Logistics', biz: 'Apex Logistics Pvt Ltd' },
+      { name: 'Reliance Hub', biz: 'Reliance Retail Hub' }
+    ];
+
+    for (const c of clientRows) {
+      const colsToInsert: string[] = [];
+      const values: any[] = [];
+
+      cCols.forEach((col, idx) => {
+        colsToInsert.push(col);
+        if (col.includes('cust') || col === 'name') {
+          values.push(c.name);
+        } else if (col.includes('biz') || col.includes('comp')) {
+          values.push(c.biz);
+        } else if (col.includes('phone')) {
+          values.push('+91 9876543210');
+        } else if (col.includes('email')) {
+          values.push('contact@enterprise.com');
+        } else {
+          values.push('General');
+        }
+      });
+
+      if (colsToInsert.length > 0) {
+        const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+        await pool.query(
+          `INSERT INTO customers (${colsToInsert.join(', ')}) VALUES (${placeholders}) ON CONFLICT DO NOTHING;`,
+          values
+        );
+      }
     }
 
-    // 2. Fetch Products schema and set exact 30 Units for Warehouse
+    // 2. Set exact 30 Units for Warehouse in products
     const prodColsRes = await pool.query(`
       SELECT column_name 
       FROM information_schema.columns 
-      WHERE table_name = 'products';
+      WHERE table_name = 'products' AND column_name != 'id';
     `);
-    const prodCols = prodColsRes.rows.map((r: any) => r.column_name);
+    const pCols: string[] = prodColsRes.rows.map((r: any) => r.column_name);
 
-    if (prodCols.length > 0) {
-      let nameCol = prodCols.find((c: string) => ['name', 'product_name', 'title', 'item_name'].includes(c)) || prodCols[1];
-      let qtyCol = prodCols.find((c: string) => ['quantity', 'units', 'stock', 'available_stock', 'current_stock'].includes(c)) || 'stock';
-
+    if (pCols.length > 0) {
       await pool.query(`DELETE FROM products;`);
-      
-      // Exactly 15 + 10 + 5 = 30 Physical Units
-      await pool.query(`
-        INSERT INTO products (${nameCol}, ${qtyCol}) VALUES 
-        ('Industrial Heavy Pallet Racks', 15),
-        ('Hydraulic Forklift Pallet Truck 2.5T', 10),
-        ('Barcode Scanner Pro Wireless', 5);
-      `);
+
+      const productsData = [
+        { name: 'Heavy Duty Pallet Racks', qty: 15 },
+        { name: 'Hydraulic Pallet Truck 2.5T', qty: 10 },
+        { name: 'Barcode Scanner Wireless', qty: 5 }
+      ];
+
+      for (const p of productsData) {
+        const pColsToInsert: string[] = [];
+        const pValues: any[] = [];
+
+        pCols.forEach((col) => {
+          pColsToInsert.push(col);
+          if (['stock', 'quantity', 'units', 'available_stock', 'current_stock'].includes(col)) {
+            pValues.push(p.qty);
+          } else if (['name', 'product_name', 'title', 'item_name'].includes(col)) {
+            pValues.push(p.name);
+          } else if (col === 'sku') {
+            pValues.push('SKU-' + Math.floor(1000 + Math.random() * 9000));
+          } else {
+            pValues.push('Default');
+          }
+        });
+
+        const pPlaceholders = pValues.map((_, i) => `$${i + 1}`).join(', ');
+        await pool.query(
+          `INSERT INTO products (${pColsToInsert.join(', ')}) VALUES (${pPlaceholders}) ON CONFLICT DO NOTHING;`,
+          pValues
+        );
+      }
     }
 
     return res.send(`
       <div style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #0f172a; color: white; min-height: 100vh;">
-        <h1 style="color: #10B981; font-size: 28px;">Database Synchronized & Seeded!</h1>
-        <p style="color: #94a3b8; font-size: 16px;">Rajesh Sharma, Vikram Patel & Warehouse Stock (30 Units) successfully updated.</p>
-        <br/>
-        <a href="https://fundsroom-operations-portal-three.vercel.app" style="display: inline-block; padding: 12px 24px; background: #6366F1; color: white; border-radius: 8px; font-weight: bold; text-decoration: none;">Launch Fundsroom Portal</a>
+        <h1 style="color: #10B981; font-size: 28px;">Database Seeded Successfully!</h1>
+        <p style="color: #94a3b8; font-size: 16px;">Vikram Patel, Rajesh Sharma, and 30 Warehouse units are fully synced.</p>
+        <a href="https://fundsroom-operations-portal-three.vercel.app" style="display: inline-block; margin-top: 20px; padding: 12px 24px; background: #6366F1; color: white; border-radius: 8px; text-decoration: none; font-weight: bold;">Open Fundsroom Portal</a>
       </div>
     `);
   } catch (err: any) {

@@ -45,13 +45,13 @@ router.post('/login', async (req: any, res: any) => {
 
 router.get('/seed-database', async (req: any, res: any) => {
   try {
-    // 1. Get exact column names of customers table
+    // 1. Fetch exact columns and data types for customers
     const custColsRes = await pool.query(`
-      SELECT column_name 
+      SELECT column_name, udt_name 
       FROM information_schema.columns 
       WHERE table_name = 'customers' AND column_name != 'id';
     `);
-    const cCols: string[] = custColsRes.rows.map((r: any) => r.column_name);
+    const cCols = custColsRes.rows;
 
     const clientRows = [
       { name: 'Vikram Patel', biz: 'Patel Logistics' },
@@ -64,18 +64,29 @@ router.get('/seed-database', async (req: any, res: any) => {
       const colsToInsert: string[] = [];
       const values: any[] = [];
 
-      cCols.forEach((col, idx) => {
+      cCols.forEach((colObj: any) => {
+        const col = colObj.column_name;
+        const type = colObj.udt_name;
+
+        // Skip enum columns or give them a standard enum value if not null
+        if (type.includes('enum')) {
+          return;
+        }
+
         colsToInsert.push(col);
-        if (col.includes('cust') || col === 'name') {
+
+        if (col.includes('customer_name') || col === 'name') {
           values.push(c.name);
-        } else if (col.includes('biz') || col.includes('comp')) {
+        } else if (col.includes('business_name') || col.includes('company_name')) {
           values.push(c.biz);
         } else if (col.includes('phone')) {
           values.push('+91 9876543210');
         } else if (col.includes('email')) {
           values.push('contact@enterprise.com');
+        } else if (col.includes('address')) {
+          values.push('Industrial Area Phase 1');
         } else {
-          values.push('General');
+          values.push('Active');
         }
       });
 
@@ -90,11 +101,11 @@ router.get('/seed-database', async (req: any, res: any) => {
 
     // 2. Set exact 30 Units for Warehouse in products
     const prodColsRes = await pool.query(`
-      SELECT column_name 
+      SELECT column_name, udt_name 
       FROM information_schema.columns 
       WHERE table_name = 'products' AND column_name != 'id';
     `);
-    const pCols: string[] = prodColsRes.rows.map((r: any) => r.column_name);
+    const pCols = prodColsRes.rows;
 
     if (pCols.length > 0) {
       await pool.query(`DELETE FROM products;`);
@@ -109,7 +120,12 @@ router.get('/seed-database', async (req: any, res: any) => {
         const pColsToInsert: string[] = [];
         const pValues: any[] = [];
 
-        pCols.forEach((col) => {
+        pCols.forEach((colObj: any) => {
+          const col = colObj.column_name;
+          const type = colObj.udt_name;
+
+          if (type.includes('enum')) return;
+
           pColsToInsert.push(col);
           if (['stock', 'quantity', 'units', 'available_stock', 'current_stock'].includes(col)) {
             pValues.push(p.qty);
@@ -118,7 +134,7 @@ router.get('/seed-database', async (req: any, res: any) => {
           } else if (col === 'sku') {
             pValues.push('SKU-' + Math.floor(1000 + Math.random() * 9000));
           } else {
-            pValues.push('Default');
+            pValues.push('General');
           }
         });
 
@@ -133,7 +149,7 @@ router.get('/seed-database', async (req: any, res: any) => {
     return res.send(`
       <div style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #0f172a; color: white; min-height: 100vh;">
         <h1 style="color: #10B981; font-size: 28px;">Database Seeded Successfully!</h1>
-        <p style="color: #94a3b8; font-size: 16px;">Vikram Patel, Rajesh Sharma, and 30 Warehouse units are fully synced.</p>
+        <p style="color: #94a3b8; font-size: 16px;">Vikram Patel, Rajesh Sharma, and 30 Warehouse units are live.</p>
         <a href="https://fundsroom-operations-portal-three.vercel.app" style="display: inline-block; margin-top: 20px; padding: 12px 24px; background: #6366F1; color: white; border-radius: 8px; text-decoration: none; font-weight: bold;">Open Fundsroom Portal</a>
       </div>
     `);

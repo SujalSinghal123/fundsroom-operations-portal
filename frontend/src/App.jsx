@@ -1,57 +1,84 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Localhost aur Vercel dono ke liye dynamic API target
+const API_BASE = import.meta.env.VITE_API_BASE || (
+  typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:5000/api'
+    : 'https://fundsroom-api.onrender.com/api' // Live Render Backend
+);
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem('token') || '');
-  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
-  const [activeTab, setActiveTab] = useState('crm');
+  const [token, setToken] = useState(localStorage.getItem('erp_token') || '');
+  const [user, setUser] = useState(JSON.parse(localStorage.getItem('erp_user') || 'null'));
+  const [activeTab, setActiveTab] = useState('challans'); // 'challans' | 'inventory' | 'crm'
 
-  // Auth Inputs
-  const [email, setEmail] = useState('admin@fundsroom.com');
-  const [password, setPassword] = useState('Password@123');
-
-  // Data states
+  // Data States
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
-  const [searchCust, setSearchCust] = useState('');
+  const [challans, setChallans] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
 
-  // Form states
-  const [custForm, setCustForm] = useState({
-    customer_name: '', mobile_number: '', email: '', business_name: '',
-    customer_type: 'Wholesale', address: '', status: 'Lead', follow_up_date: '', notes: ''
+  // Challan Issue Form State
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [challanLines, setChallanLines] = useState([{ product_id: '', quantity: 1 }]);
+  const [dispatchState, setDispatchState] = useState('Confirmed');
+
+  // Auth Inputs
+  const [email, setEmail] = useState('sales@fundsweb.in');
+  const [password, setPassword] = useState('Password@123');
+  const [authError, setAuthError] = useState('');
+
+  const triggerToast = (msg) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 4000);
+  };
+
+  const getHeaders = () => ({
+    headers: { Authorization: `Bearer ${token}` }
   });
 
-  const [challanItems, setChallanItems] = useState([]);
-  const [selectedCustId, setSelectedCustId] = useState('');
-  const [challanStatus, setChallanStatus] = useState('Draft');
+  // Fetch Dashboard & Entity Data
+  const loadWorkspaceData = async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const [custRes, prodRes, chalRes] = await Promise.all([
+        axios.get(`${API_BASE}/customers`, getHeaders()).catch(() => ({ data: { data: [] } })),
+        axios.get(`${API_BASE}/products`, getHeaders()).catch(() => ({ data: { data: [] } })),
+        axios.get(`${API_BASE}/challans`, getHeaders()).catch(() => ({ data: { data: [] } }))
+      ]);
+      setCustomers(custRes.data.data || []);
+      setProducts(prodRes.data.data || []);
+      setChallans(chalRes.data.data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (token) {
-      fetchCustomers();
-      fetchProducts();
+      loadWorkspaceData();
     }
   }, [token]);
 
+  // Login Handler
   const handleLogin = async (e) => {
     e.preventDefault();
+    setAuthError('');
     try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await res.json();
-      if (data.token) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        setToken(data.token);
-        setUser(data.user);
-      } else {
-        alert(data.message || 'Login failed');
-      }
+      const res = await axios.post(`${API_BASE}/auth/login`, { email, password });
+      const { token: jwtToken, user: userData } = res.data;
+      localStorage.setItem('erp_token', jwtToken);
+      localStorage.setItem('erp_user', JSON.stringify(userData));
+      setToken(jwtToken);
+      setUser(userData);
     } catch (err) {
-      alert('Network error during login');
+      const msg = err.response?.data?.message || err.message || 'Invalid email or password';
+      setAuthError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
   };
 
@@ -61,303 +88,528 @@ export default function App() {
     setUser(null);
   };
 
-  const fetchCustomers = async () => {
-    const res = await fetch(`${API_BASE}/customers`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const data = await res.json();
-    if (Array.isArray(data)) setCustomers(data);
-    else if (data.data) setCustomers(data.data);
+  // Quick Role Fast-fill
+  const fillRole = (targetRole) => {
+    if (targetRole === 'Sales') {
+      setEmail('sales@fundsweb.in');
+      setPassword('Password@123');
+    } else if (targetRole === 'Warehouse') {
+      setEmail('warehouse@fundsweb.in');
+      setPassword('Password@123');
+    } else if (targetRole === 'Admin') {
+      setEmail('admin@fundsweb.in');
+      setPassword('Password@123');
+    }
   };
 
-  const fetchProducts = async () => {
-    const res = await fetch(`${API_BASE}/products`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const data = await res.json();
-    if (Array.isArray(data)) setProducts(data);
-    else if (data.data) setProducts(data.data);
-  };
-
-  const createCustomer = async (e) => {
+  // Process Challan Dispatch
+  const handleProcessChallan = async (e) => {
     e.preventDefault();
-    const res = await fetch(`${API_BASE}/customers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(custForm)
-    });
-    if (res.ok) {
-      alert('Customer added successfully');
-      fetchCustomers();
-      setCustForm({
-        customer_name: '', mobile_number: '', email: '', business_name: '',
-        customer_type: 'Wholesale', address: '', status: 'Lead', follow_up_date: '', notes: ''
-      });
-    } else {
-      const err = await res.json();
-      alert(err.message || 'Failed to add customer');
+    if (!selectedCustomerId) {
+      triggerToast('Please select a consignee / customer');
+      return;
+    }
+    const validLines = challanLines.filter(l => l.product_id && l.quantity > 0);
+    if (validLines.length === 0) {
+      triggerToast('Please select at least one valid product');
+      return;
+    }
+
+    try {
+      const res = await axios.post(`${API_BASE}/challans`, {
+        customer_id: selectedCustomerId,
+        items: validLines,
+        status: dispatchState
+      }, getHeaders());
+
+      triggerToast(`Sales Challan ${res.data.data?.challan_number || 'Recorded'} processed successfully!`);
+      setSelectedCustomerId('');
+      setChallanLines([{ product_id: '', quantity: 1 }]);
+      loadWorkspaceData();
+    } catch (err) {
+      triggerToast(err.response?.data?.message || 'Challan creation failed');
     }
   };
 
-  const addChallanRow = () => {
-    if (products.length === 0) return alert('No products available');
-    setChallanItems([...challanItems, { product_id: products[0].id, quantity: 1 }]);
-  };
+  // Derived KPI Metrics
+  const totalWarehouseUnits = products.reduce((sum, p) => sum + (Number(p.current_stock) || 0), 0);
+  const lowStockCount = products.filter(p => Number(p.current_stock) <= Number(p.min_stock_alert || 5)).length;
 
-  const submitChallan = async () => {
-    if (!selectedCustId || challanItems.length === 0) {
-      return alert('Select a customer and add at least one item');
-    }
-    const res = await fetch(`${API_BASE}/challans`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        customer_id: selectedCustId,
-        items: challanItems,
-        status: challanStatus
-      })
-    });
-    const data = await res.json();
-    if (res.ok) {
-      alert(`Challan Created: ${data.data.challan_number}`);
-      setChallanItems([]);
-      fetchProducts();
-    } else {
-      alert(data.message || 'Error creating challan');
-    }
-  };
-
-  if (!token) {
+  // ----------------- LOGIN SCREEN -----------------
+  if (!token || !user) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
-          <h2 className="text-2xl font-bold mb-4 text-slate-800">Mini ERP Login</h2>
+      <div className="min-h-screen bg-[#070b14] flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-[#0d1424] border border-[#1b253b] rounded-2xl p-8 shadow-2xl">
+          <div className="flex flex-col items-center mb-6">
+            <div className="w-12 h-12 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-xl flex items-center justify-center font-bold text-white text-xl shadow-lg mb-3">
+              FR
+            </div>
+            <h1 className="text-xl font-bold text-slate-100">Fundsroom Portal</h1>
+            <p className="text-xs text-slate-400 mt-1">Enterprise Mini ERP, CRM & Inventory Suite</p>
+          </div>
+
+          {authError && (
+            <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center font-medium">
+              {authError}
+            </div>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-600">Email</label>
-              <input 
-                className="w-full border p-2 rounded" 
-                value={email} 
-                onChange={(e) => setEmail(e.target.value)} 
-                required 
+              <label className="block text-[11px] font-semibold tracking-wider text-slate-400 uppercase mb-1.5">
+                Work Email
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-[#131c31] border border-[#23314f] focus:border-blue-500 rounded-lg px-3.5 py-2 text-sm text-slate-200 outline-none transition"
               />
             </div>
+
             <div>
-              <label className="block text-sm font-semibold text-gray-600">Password</label>
-              <input 
-                type="password" 
-                className="w-full border p-2 rounded" 
-                value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
-                required 
+              <label className="block text-[11px] font-semibold tracking-wider text-slate-400 uppercase mb-1.5">
+                Password
+              </label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-[#131c31] border border-[#23314f] focus:border-blue-500 rounded-lg px-3.5 py-2 text-sm text-slate-200 outline-none transition"
               />
             </div>
-            <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-semibold hover:bg-blue-700">
-              Sign In
+
+            <button
+              type="submit"
+              className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium text-sm transition shadow-lg shadow-indigo-500/25 mt-2"
+            >
+              Enter Workspace
             </button>
           </form>
+
+          <div className="mt-8 pt-5 border-t border-[#1b253b] flex items-center justify-between text-xs text-slate-400">
+            <span>Fast Role:</span>
+            <div className="flex gap-4">
+              <button type="button" onClick={() => fillRole('Sales')} className="hover:text-blue-400 font-medium">Sales</button>
+              <button type="button" onClick={() => fillRole('Warehouse')} className="hover:text-blue-400 font-medium">Warehouse</button>
+              <button type="button" onClick={() => fillRole('Admin')} className="hover:text-blue-400 font-medium">Admin</button>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  const filteredCustomers = customers.filter(c => 
-    c.customer_name?.toLowerCase().includes(searchCust.toLowerCase()) ||
-    c.business_name?.toLowerCase().includes(searchCust.toLowerCase())
-  );
-
+  // ----------------- ENTERPRISE DASHBOARD -----------------
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
+    <div className="min-h-screen bg-[#070b14] text-slate-100 flex font-sans">
+      {/* Sidebar */}
+      <aside className="w-64 bg-[#0d1424] border-r border-[#1a233a] flex flex-col justify-between shrink-0">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">Operations Portal</h1>
-          <p className="text-xs text-slate-500">Logged in as: <span className="font-semibold">{user?.name || user?.email}</span> ({user?.role})</p>
+          {/* Logo Header */}
+          <div className="p-5 flex items-center gap-3 border-b border-[#1a233a]">
+            <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white shadow-md">
+              FR
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-sm tracking-tight text-white">Fundsroom</span>
+                <span className="bg-blue-500/20 text-blue-400 text-[10px] font-bold px-1.5 py-0.5 rounded border border-blue-500/30">PRO</span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-medium">OPERATIONS SUITE</p>
+            </div>
+          </div>
+
+          {/* Navigation Links */}
+          <div className="p-3">
+            <p className="text-[10px] font-bold text-slate-500 tracking-wider uppercase px-3 py-2">
+              ENTERPRISE CORE
+            </p>
+            <nav className="space-y-1 mt-1">
+              <button
+                onClick={() => setActiveTab('challans')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-semibold transition ${
+                  activeTab === 'challans'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#131d33]'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span>📄</span>
+                  <span>Sales Challans</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'challans' ? 'bg-black/30' : 'bg-[#1a243d] text-slate-300'}`}>
+                  {challans.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('inventory')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-semibold transition ${
+                  activeTab === 'inventory'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#131d33]'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span>📦</span>
+                  <span>Inventory & Stocks</span>
+                </div>
+                {lowStockCount > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-red-500/20 text-red-400 border border-red-500/40 text-[10px] flex items-center justify-center font-bold">
+                    !
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setActiveTab('crm')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-semibold transition ${
+                  activeTab === 'crm'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#131d33]'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span>👥</span>
+                  <span>Customer CRM</span>
+                </div>
+                <span className="text-[10px] text-slate-500 font-bold">{customers.length}</span>
+              </button>
+            </nav>
+          </div>
         </div>
-        <button onClick={handleLogout} className="text-sm bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded font-medium hover:bg-red-100">
-          Logout
-        </button>
-      </header>
 
-      {/* Navigation */}
-      <div className="flex border-b bg-white px-6 gap-6">
-        <button 
-          onClick={() => setActiveTab('crm')} 
-          className={`py-3 text-sm font-semibold border-b-2 ${activeTab === 'crm' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>
-          Customer CRM
-        </button>
-        <button 
-          onClick={() => setActiveTab('inventory')} 
-          className={`py-3 text-sm font-semibold border-b-2 ${activeTab === 'inventory' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>
-          Products & Inventory
-        </button>
-        <button 
-          onClick={() => setActiveTab('challan')} 
-          className={`py-3 text-sm font-semibold border-b-2 ${activeTab === 'challan' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>
-          Sales Challan
-        </button>
-      </div>
+        {/* User Session Footer */}
+        <div className="p-4 border-t border-[#1a233a] bg-[#0a0f1d]">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs font-bold text-slate-200">{user.name || 'Sales Lead'}</p>
+              <p className="text-[10px] text-teal-400 font-semibold uppercase tracking-wider">{user.role} PERSONA</p>
+            </div>
+            <div className="w-2 h-2 rounded-full bg-teal-400 shadow-sm shadow-teal-400"></div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="w-full py-1.5 px-3 rounded bg-[#162035] hover:bg-[#1e2c49] text-slate-300 text-xs font-medium border border-[#23314f] transition"
+          >
+            Terminate Session
+          </button>
+        </div>
+      </aside>
 
-      <main className="p-6 max-w-7xl mx-auto">
-        {/* CRM TAB */}
-        {activeTab === 'crm' && (
-          <div className="space-y-6">
-            <div className="bg-white p-6 rounded-lg shadow-sm border">
-              <h3 className="text-lg font-bold mb-4">Add Customer</h3>
-              <form onSubmit={createCustomer} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <input placeholder="Customer Name *" className="border p-2 rounded" required value={custForm.customer_name} onChange={e => setCustForm({...custForm, customer_name: e.target.value})} />
-                <input placeholder="Mobile Number *" className="border p-2 rounded" required value={custForm.mobile_number} onChange={e => setCustForm({...custForm, mobile_number: e.target.value})} />
-                <input placeholder="Email *" className="border p-2 rounded" required value={custForm.email} onChange={e => setCustForm({...custForm, email: e.target.value})} />
-                <input placeholder="Business Name *" className="border p-2 rounded" required value={custForm.business_name} onChange={e => setCustForm({...custForm, business_name: e.target.value})} />
-                <select className="border p-2 rounded" value={custForm.customer_type} onChange={e => setCustForm({...custForm, customer_type: e.target.value})}>
-                  <option value="Retail">Retail</option>
-                  <option value="Wholesale">Wholesale</option>
-                  <option value="Distributor">Distributor</option>
-                </select>
-                <input placeholder="Address" className="border p-2 rounded" value={custForm.address} onChange={e => setCustForm({...custForm, address: e.target.value})} />
-                <input type="date" className="border p-2 rounded" value={custForm.follow_up_date} onChange={e => setCustForm({...custForm, follow_up_date: e.target.value})} />
-                <input placeholder="Initial Notes" className="border p-2 rounded col-span-2" value={custForm.notes} onChange={e => setCustForm({...custForm, notes: e.target.value})} />
-                <button type="submit" className="bg-blue-600 text-white rounded font-semibold py-2 md:col-span-3">Save Customer</button>
-              </form>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Top Navbar */}
+        <header className="h-14 bg-[#0d1424] border-b border-[#1a233a] px-6 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-400 font-medium">Workspace</span>
+            <span className="text-slate-600">/</span>
+            <span className="text-slate-200 font-semibold capitalize">{activeTab} View</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span className="text-emerald-400 text-xs font-medium tracking-wide">Neon Cloud DB Live</span>
+          </div>
+        </header>
+
+        {/* Workspace Body */}
+        <main className="p-6 space-y-6 max-w-[1400px] w-full mx-auto">
+          {/* Toast Banner */}
+          {toastMsg && (
+            <div className="p-3.5 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs flex justify-between items-center shadow-lg animate-fade-in">
+              <span>{toastMsg}</span>
+              <button onClick={() => setToastMsg('')} className="text-emerald-400 hover:text-white text-base">✕</button>
+            </div>
+          )}
+
+          {/* KPI Dashboard Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-[#0d1424] border border-[#1b253b] rounded-xl p-4 flex justify-between items-start shadow-sm">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">CUSTOMER ACCOUNTS</p>
+                <h3 className="text-2xl font-black text-white mt-2">{customers.length}</h3>
+                <p className="text-[10px] text-slate-500 mt-1">Verified partner entities</p>
+              </div>
+              <span className="p-2 rounded-lg bg-blue-500/10 text-blue-400 text-sm">👥</span>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold">Customers</h3>
-                <input 
-                  placeholder="Search by customer/business name..." 
-                  className="border p-2 rounded w-64 text-sm"
-                  value={searchCust}
-                  onChange={e => setSearchCust(e.target.value)}
-                />
+            <div className="bg-[#0d1424] border border-[#1b253b] rounded-xl p-4 flex justify-between items-start shadow-sm">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">WAREHOUSE TOTAL UNITS</p>
+                <h3 className="text-2xl font-black text-white mt-2">{totalWarehouseUnits}</h3>
+                <p className="text-[10px] text-slate-500 mt-1">Live physical count</p>
               </div>
+              <span className="p-2 rounded-lg bg-amber-500/10 text-amber-400 text-sm">📦</span>
+            </div>
+
+            <div className="bg-[#0d1424] border border-[#1b253b] rounded-xl p-4 flex justify-between items-start shadow-sm">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">LOW STOCK WARNINGS</p>
+                <h3 className="text-2xl font-black text-white mt-2">{lowStockCount}</h3>
+                <p className="text-[10px] text-slate-500 mt-1">Below minimum threshold</p>
+              </div>
+              <span className="p-2 rounded-lg bg-red-500/10 text-red-400 text-sm">⚠️</span>
+            </div>
+
+            <div className="bg-[#0d1424] border border-[#1b253b] rounded-xl p-4 flex justify-between items-start shadow-sm">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">CHALLANS GENERATED</p>
+                <h3 className="text-2xl font-black text-white mt-2">{challans.length}</h3>
+                <p className="text-[10px] text-slate-500 mt-1">Audit log records</p>
+              </div>
+              <span className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 text-sm">📄</span>
+            </div>
+          </div>
+
+          {/* MAIN TAB CONTENT: Sales Challans View */}
+          {activeTab === 'challans' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Issue Sales Challan Form (Left Box) */}
+              <div className="lg:col-span-4 bg-[#0d1424] border border-[#1b253b] rounded-2xl p-5 shadow-lg">
+                <h3 className="text-sm font-bold text-white">Issue Sales Challan</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5 mb-4">Deducts inventory stock transactionally</p>
+
+                <form onSubmit={handleProcessChallan} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      SELECT PARTNER
+                    </label>
+                    <select
+                      required
+                      value={selectedCustomerId}
+                      onChange={(e) => setSelectedCustomerId(e.target.value)}
+                      className="w-full bg-[#131c31] border border-[#23314f] text-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-500 transition"
+                    >
+                      <option value="">-- Choose Consignee --</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.customer_name} ({c.business_name || 'Individual'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        PRODUCT LINE
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setChallanLines([...challanLines, { product_id: '', quantity: 1 }])}
+                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300"
+                      >
+                        + Add Line
+                      </button>
+                    </div>
+
+                    {challanLines.map((line, idx) => (
+                      <div key={idx} className="flex gap-2 mb-2">
+                        <select
+                          required
+                          value={line.product_id}
+                          onChange={(e) => {
+                            const updated = [...challanLines];
+                            updated[idx].product_id = e.target.value;
+                            setChallanLines(updated);
+                          }}
+                          className="flex-1 bg-[#131c31] border border-[#23314f] text-slate-200 rounded-lg px-2.5 py-2 text-xs outline-none focus:border-blue-500 transition"
+                        >
+                          <option value="">Select Item...</option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id} disabled={p.current_stock <= 0}>
+                              {p.product_name} (Stock: {p.current_stock})
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min="1"
+                          required
+                          value={line.quantity}
+                          onChange={(e) => {
+                            const updated = [...challanLines];
+                            updated[idx].quantity = parseInt(e.target.value, 10) || 1;
+                            setChallanLines(updated);
+                          }}
+                          className="w-16 bg-[#131c31] border border-[#23314f] text-slate-200 rounded-lg px-2 py-2 text-xs text-center font-semibold outline-none focus:border-blue-500 transition"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      DISPATCH STATE
+                    </label>
+                    <select
+                      value={dispatchState}
+                      onChange={(e) => setDispatchState(e.target.value)}
+                      className="w-full bg-[#131c31] border border-[#23314f] text-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-500 transition"
+                    >
+                      <option value="Confirmed">Confirmed (Immediate Stock Reduction)</option>
+                      <option value="Draft">Draft (Hold Only)</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium text-xs shadow-lg shadow-indigo-600/30 transition pt-2"
+                  >
+                    Process Challan Dispatch
+                  </button>
+                </form>
+              </div>
+
+              {/* Challan Dispatch Records (Right Table) */}
+              <div className="lg:col-span-8 bg-[#0d1424] border border-[#1b253b] rounded-2xl p-5 shadow-lg">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Challan Dispatch Records</h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Click any row to view print-ready dispatch invoice</p>
+                  </div>
+                  <button className="px-3 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1e2c49] border border-[#23314f] text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition">
+                    <span>🖨️</span> Export PDF
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#1b253b] text-slate-400 uppercase tracking-wider text-[10px]">
+                        <th className="pb-3 px-3">CHALLAN #</th>
+                        <th className="pb-3 px-3">CUSTOMER</th>
+                        <th className="pb-3 px-3">TOTAL QTY</th>
+                        <th className="pb-3 px-3">STATUS</th>
+                        <th className="pb-3 px-3 text-right">VOUCHER</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#151e33]">
+                      {challans.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-slate-500">
+                            No dispatch records recorded yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        challans.map((ch) => {
+                          const customerObj = ch.customer_snapshot || {};
+                          return (
+                            <tr key={ch.id} className="hover:bg-[#121a2d] transition">
+                              <td className="py-3 px-3 font-mono font-medium text-blue-400">
+                                {ch.challan_number}
+                              </td>
+                              <td className="py-3 px-3 text-slate-200 font-medium">
+                                {customerObj.customer_name || ch.customer_name || 'N/A'}
+                              </td>
+                              <td className="py-3 px-3 text-slate-300">
+                                {ch.total_quantity} units
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                  ch.status === 'Confirmed'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                    : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${ch.status === 'Confirmed' ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+                                  {ch.status}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-right">
+                                <button className="text-blue-400 hover:text-blue-300 font-semibold underline">
+                                  View Invoice
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* INVENTORY TAB VIEW */}
+          {activeTab === 'inventory' && (
+            <div className="bg-[#0d1424] border border-[#1b253b] rounded-2xl p-5 shadow-lg">
+              <h3 className="text-sm font-bold text-white mb-1">Warehouse Stock Catalog</h3>
+              <p className="text-[11px] text-slate-400 mb-4">Live inventory tracking and threshold monitors</p>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-100 text-slate-600">
-                    <tr>
-                      <th className="p-3">Name</th>
-                      <th className="p-3">Business</th>
-                      <th className="p-3">Contact</th>
-                      <th className="p-3">Type</th>
-                      <th className="p-3">Status</th>
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#1b253b] text-slate-400 uppercase tracking-wider text-[10px]">
+                      <th className="pb-3 px-3">SKU</th>
+                      <th className="pb-3 px-3">PRODUCT</th>
+                      <th className="pb-3 px-3">CATEGORY</th>
+                      <th className="pb-3 px-3">LOCATION</th>
+                      <th className="pb-3 px-3 text-right">PRICE</th>
+                      <th className="pb-3 px-3 text-right">STOCK COUNT</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {filteredCustomers.map(c => (
-                      <tr key={c.id} className="border-b">
-                        <td className="p-3 font-semibold">{c.customer_name}</td>
-                        <td className="p-3">{c.business_name}</td>
-                        <td className="p-3">{c.mobile_number}</td>
-                        <td className="p-3">{c.customer_type}</td>
-                        <td className="p-3"><span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">{c.status}</span></td>
+                  <tbody className="divide-y divide-[#151e33]">
+                    {products.map((p) => (
+                      <tr key={p.id} className="hover:bg-[#121a2d]">
+                        <td className="py-3 px-3 font-mono text-slate-400">{p.sku}</td>
+                        <td className="py-3 px-3 font-medium text-slate-200">{p.product_name}</td>
+                        <td className="py-3 px-3 text-slate-400">{p.category}</td>
+                        <td className="py-3 px-3 text-slate-400">{p.location}</td>
+                        <td className="py-3 px-3 text-right text-slate-300">₹{Number(p.unit_price).toFixed(2)}</td>
+                        <td className="py-3 px-3 text-right font-bold">
+                          <span className={Number(p.current_stock) <= Number(p.min_stock_alert || 5) ? 'text-red-400' : 'text-emerald-400'}>
+                            {p.current_stock}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* INVENTORY TAB */}
-        {activeTab === 'inventory' && (
-          <div className="bg-white p-6 rounded-lg shadow-sm border">
-            <h3 className="text-lg font-bold mb-4">Products & Stock Alerts</h3>
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-100 text-slate-600">
-                <tr>
-                  <th className="p-3">SKU</th>
-                  <th className="p-3">Product Name</th>
-                  <th className="p-3">Category</th>
-                  <th className="p-3">Price</th>
-                  <th className="p-3">Current Stock</th>
-                  <th className="p-3">Min Alert</th>
-                </tr>
-              </thead>
-              <tbody>
-                {products.map(p => (
-                  <tr key={p.id} className={`border-b ${p.current_stock <= p.min_stock_alert ? 'bg-red-50' : ''}`}>
-                    <td className="p-3 font-mono">{p.sku}</td>
-                    <td className="p-3 font-semibold">{p.product_name}</td>
-                    <td className="p-3">{p.category}</td>
-                    <td className="p-3 font-semibold">₹{p.unit_price}</td>
-                    <td className="p-3 font-bold">{p.current_stock}</td>
-                    <td className="p-3 text-gray-500">{p.min_stock_alert}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* CHALLAN TAB */}
-        {activeTab === 'challan' && (
-          <div className="bg-white p-6 rounded-lg shadow-sm border space-y-4">
-            <h3 className="text-lg font-bold">Generate Sales Challan</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold mb-1">Select Customer</label>
-                <select className="border p-2 rounded w-full" value={selectedCustId} onChange={e => setSelectedCustId(e.target.value)}>
-                  <option value="">-- Choose Customer --</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.customer_name} ({c.business_name})</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-1">Status</label>
-                <select className="border p-2 rounded w-full" value={challanStatus} onChange={e => setChallanStatus(e.target.value)}>
-                  <option value="Draft">Draft</option>
-                  <option value="Confirmed">Confirmed (Reduces Stock)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="font-semibold text-sm text-slate-700">Products</h4>
-              {challanItems.map((item, idx) => (
-                <div key={idx} className="flex gap-4 items-center">
-                  <select 
-                    className="border p-2 rounded flex-1"
-                    value={item.product_id}
-                    onChange={e => {
-                      const newItems = [...challanItems];
-                      newItems[idx].product_id = e.target.value;
-                      setChallanItems(newItems);
-                    }}>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>{p.product_name} (Stock: {p.current_stock})</option>
+          {/* CRM TAB VIEW */}
+          {activeTab === 'crm' && (
+            <div className="bg-[#0d1424] border border-[#1b253b] rounded-2xl p-5 shadow-lg">
+              <h3 className="text-sm font-bold text-white mb-1">Customer CRM Directory</h3>
+              <p className="text-[11px] text-slate-400 mb-4">Partner accounts and client follow-ups</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#1b253b] text-slate-400 uppercase tracking-wider text-[10px]">
+                      <th className="pb-3 px-3">CUSTOMER</th>
+                      <th className="pb-3 px-3">BUSINESS NAME</th>
+                      <th className="pb-3 px-3">MOBILE</th>
+                      <th className="pb-3 px-3">TYPE</th>
+                      <th className="pb-3 px-3">STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#151e33]">
+                    {customers.map((c) => (
+                      <tr key={c.id} className="hover:bg-[#121a2d]">
+                        <td className="py-3 px-3 font-medium text-slate-200">{c.customer_name}</td>
+                        <td className="py-3 px-3 text-slate-400">{c.business_name || 'N/A'}</td>
+                        <td className="py-3 px-3 text-slate-400">{c.mobile_number}</td>
+                        <td className="py-3 px-3 text-slate-300">{c.customer_type}</td>
+                        <td className="py-3 px-3">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                            {c.status}
+                          </span>
+                        </td>
+                      </tr>
                     ))}
-                  </select>
-                  <input 
-                    type="number" 
-                    min="1" 
-                    value={item.quantity} 
-                    className="border p-2 rounded w-24"
-                    onChange={e => {
-                      const newItems = [...challanItems];
-                      newItems[idx].quantity = parseInt(e.target.value, 10) || 1;
-                      setChallanItems(newItems);
-                    }}
-                  />
-                  <button 
-                    onClick={() => setChallanItems(challanItems.filter((_, i) => i !== idx))}
-                    className="text-red-600 font-semibold px-2">
-                    ✕
-                  </button>
-                </div>
-              ))}
-              <button onClick={addChallanRow} className="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded font-medium">
-                + Add Product Row
-              </button>
+                  </tbody>
+                </table>
+              </div>
             </div>
-
-            <button onClick={submitChallan} className="bg-emerald-600 text-white px-6 py-2 rounded font-bold hover:bg-emerald-700">
-              Submit Sales Challan
-            </button>
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

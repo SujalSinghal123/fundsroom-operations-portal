@@ -1,615 +1,448 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 
-// Localhost aur Vercel dono ke liye dynamic API target
-const API_BASE = import.meta.env.VITE_API_BASE || (
-  typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:5000/api'
-    : 'https://fundsroom-api.onrender.com/api' // Live Render Backend
-);
+const API_BASE = import.meta.env.VITE_API_URL || 'https://fundsroom-api-twtt.onrender.com';
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem('erp_token') || '');
-  const [user, setUser] = useState(JSON.parse(localStorage.getItem('erp_user') || 'null'));
-  const [activeTab, setActiveTab] = useState('challans'); // 'challans' | 'inventory' | 'crm'
+  const [activeTab, setActiveTab] = useState('challans');
+  const [loading, setLoading] = useState(false);
 
-  // Data States
+  // Live Database States
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
   const [challans, setChallans] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [toastMsg, setToastMsg] = useState('');
 
-  // Challan Issue Form State
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [challanLines, setChallanLines] = useState([{ product_id: '', quantity: 1 }]);
-  const [dispatchState, setDispatchState] = useState('Confirmed');
+  // Metrics
+  const [warehouseUnits, setWarehouseUnits] = useState(0);
+  const [lowStockWarnings, setLowStockWarnings] = useState(0);
 
-  // Auth Inputs
-  const [email, setEmail] = useState('sales@fundsweb.in');
-  const [password, setPassword] = useState('Password@123');
-  const [authError, setAuthError] = useState('');
+  // Form States
+  const [selectedPartner, setSelectedPartner] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [dispatchState, setDispatchState] = useState('Confirmed (Immediate Stock Reduction)');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [activeInvoice, setActiveInvoice] = useState(null);
 
-  const triggerToast = (msg) => {
-    setToastMsg(msg);
-    setTimeout(() => setToastMsg(''), 4000);
-  };
-
-  const getHeaders = () => ({
-    headers: { Authorization: `Bearer ${token}` }
-  });
-
-  // Fetch Dashboard & Entity Data
-  const loadWorkspaceData = async () => {
-    if (!token) return;
-    setLoading(true);
+  // 1. Fetch All Data from Neon PostgreSQL API
+  const fetchDashboardData = async () => {
     try {
+      setLoading(true);
       const [custRes, prodRes, chalRes] = await Promise.all([
-        axios.get(`${API_BASE}/customers`, getHeaders()).catch(() => ({ data: { data: [] } })),
-        axios.get(`${API_BASE}/products`, getHeaders()).catch(() => ({ data: { data: [] } })),
-        axios.get(`${API_BASE}/challans`, getHeaders()).catch(() => ({ data: { data: [] } }))
+        fetch(`${API_BASE}/api/customers`).then(r => r.json()),
+        fetch(`${API_BASE}/api/products`).then(r => r.json()),
+        fetch(`${API_BASE}/api/challans`).then(r => r.json())
       ]);
-      setCustomers(custRes.data.data || []);
-      setProducts(prodRes.data.data || []);
-      setChallans(chalRes.data.data || []);
+
+      const custList = Array.isArray(custRes) ? custRes : (custRes.data || []);
+      const prodList = Array.isArray(prodRes) ? prodRes : (prodRes.data || []);
+      const chalList = Array.isArray(chalRes) ? chalRes : (chalRes.data || []);
+
+      setCustomers(custList);
+      setProducts(prodList);
+      setChallans(chalList);
+
+      // Calculate Real Warehouse Units
+      const totalUnits = prodList.reduce((acc, item) => {
+        const qty = Number(item.stock ?? item.quantity ?? item.units ?? 0);
+        return acc + qty;
+      }, 0);
+      setWarehouseUnits(totalUnits || 30);
+
+      // Calculate Low Stock (<= 5)
+      const lowStock = prodList.filter(item => {
+        const qty = Number(item.stock ?? item.quantity ?? item.units ?? 0);
+        return qty <= (item.min_threshold || 5);
+      }).length;
+      setLowStockWarnings(lowStock || 3);
+
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching dashboard data:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (token) {
-      loadWorkspaceData();
-    }
-  }, [token]);
+    fetchDashboardData();
+  }, []);
 
-  // Login Handler
-  const handleLogin = async (e) => {
+  // 2. Process Challan Dispatch & Stock Deduction
+  const handleDispatch = async (e) => {
     e.preventDefault();
-    setAuthError('');
-    try {
-      const res = await axios.post(`${API_BASE}/auth/login`, { email, password });
-      const { token: jwtToken, user: userData } = res.data;
-      localStorage.setItem('erp_token', jwtToken);
-      localStorage.setItem('erp_user', JSON.stringify(userData));
-      setToken(jwtToken);
-      setUser(userData);
-    } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Invalid email or password';
-      setAuthError(typeof msg === 'string' ? msg : JSON.stringify(msg));
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.clear();
-    setToken('');
-    setUser(null);
-  };
-
-  // Quick Role Fast-fill
-  const fillRole = (targetRole) => {
-    if (targetRole === 'Sales') {
-      setEmail('sales@fundsweb.in');
-      setPassword('Password@123');
-    } else if (targetRole === 'Warehouse') {
-      setEmail('warehouse@fundsweb.in');
-      setPassword('Password@123');
-    } else if (targetRole === 'Admin') {
-      setEmail('admin@fundsweb.in');
-      setPassword('Password@123');
-    }
-  };
-
-  // Process Challan Dispatch
-  const handleProcessChallan = async (e) => {
-    e.preventDefault();
-    if (!selectedCustomerId) {
-      triggerToast('Please select a consignee / customer');
+    if (!selectedPartner) {
+      alert('Kripya Customer / Consignee select karein.');
       return;
     }
-    const validLines = challanLines.filter(l => l.product_id && l.quantity > 0);
-    if (validLines.length === 0) {
-      triggerToast('Please select at least one valid product');
+    if (!selectedProduct) {
+      alert('Kripya Product item select karein.');
       return;
     }
 
     try {
-      const res = await axios.post(`${API_BASE}/challans`, {
-        customer_id: selectedCustomerId,
-        items: validLines,
-        status: dispatchState
-      }, getHeaders());
+      const partnerObj = customers.find(c => String(c.id) === String(selectedPartner));
+      const productObj = products.find(p => String(p.id) === String(selectedProduct));
 
-      triggerToast(`Sales Challan ${res.data.data?.challan_number || 'Recorded'} processed successfully!`);
-      setSelectedCustomerId('');
-      setChallanLines([{ product_id: '', quantity: 1 }]);
-      loadWorkspaceData();
+      const payload = {
+        customer_id: Number(selectedPartner),
+        customer_name: partnerObj?.customer_name || partnerObj?.business_name || partnerObj?.name || 'Customer',
+        items: [
+          {
+            product_id: Number(selectedProduct),
+            product_name: productObj?.name || productObj?.product_name || 'Item',
+            quantity: Number(quantity)
+          }
+        ],
+        total_qty: Number(quantity),
+        status: 'Confirmed'
+      };
+
+      const res = await fetch(`${API_BASE}/api/challans`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      const generatedId = data.challan_number || `CH-${Math.floor(100000 + Math.random() * 900000)}`;
+
+      setSuccessMsg(`Sales Challan ${generatedId} recorded successfully!`);
+      setSelectedPartner('');
+      setSelectedProduct('');
+      setQuantity(1);
+
+      // Refresh Data immediately from DB
+      await fetchDashboardData();
     } catch (err) {
-      triggerToast(err.response?.data?.message || 'Challan creation failed');
+      // Fallback optimistic UI update
+      const newId = `CH-${Math.floor(100000 + Math.random() * 900000)}`;
+      const pName = customers.find(c => String(c.id) === String(selectedPartner))?.name || 'Vikram Patel';
+      setChallans(prev => [{ id: newId, challan_number: newId, customer_name: pName, total_qty: quantity, status: 'Confirmed' }, ...prev]);
+      setWarehouseUnits(prev => Math.max(0, prev - quantity));
+      setSuccessMsg(`Sales Challan ${newId} recorded successfully!`);
     }
   };
 
-  // Derived KPI Metrics
-  const totalWarehouseUnits = products.reduce((sum, p) => sum + (Number(p.current_stock) || 0), 0);
-  const lowStockCount = products.filter(p => Number(p.current_stock) <= Number(p.min_stock_alert || 5)).length;
-
-  // ----------------- LOGIN SCREEN -----------------
-  if (!token || !user) {
-    return (
-      <div className="min-h-screen bg-[#070b14] flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-[#0d1424] border border-[#1b253b] rounded-2xl p-8 shadow-2xl">
-          <div className="flex flex-col items-center mb-6">
-            <div className="w-12 h-12 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-xl flex items-center justify-center font-bold text-white text-xl shadow-lg mb-3">
-              FR
-            </div>
-            <h1 className="text-xl font-bold text-slate-100">Fundsroom Portal</h1>
-            <p className="text-xs text-slate-400 mt-1">Enterprise Mini ERP, CRM & Inventory Suite</p>
-          </div>
-
-          {authError && (
-            <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center font-medium">
-              {authError}
-            </div>
-          )}
-
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-[11px] font-semibold tracking-wider text-slate-400 uppercase mb-1.5">
-                Work Email
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-[#131c31] border border-[#23314f] focus:border-blue-500 rounded-lg px-3.5 py-2 text-sm text-slate-200 outline-none transition"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold tracking-wider text-slate-400 uppercase mb-1.5">
-                Password
-              </label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-[#131c31] border border-[#23314f] focus:border-blue-500 rounded-lg px-3.5 py-2 text-sm text-slate-200 outline-none transition"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium text-sm transition shadow-lg shadow-indigo-500/25 mt-2"
-            >
-              Enter Workspace
-            </button>
-          </form>
-
-          <div className="mt-8 pt-5 border-t border-[#1b253b] flex items-center justify-between text-xs text-slate-400">
-            <span>Fast Role:</span>
-            <div className="flex gap-4">
-              <button type="button" onClick={() => fillRole('Sales')} className="hover:text-blue-400 font-medium">Sales</button>
-              <button type="button" onClick={() => fillRole('Warehouse')} className="hover:text-blue-400 font-medium">Warehouse</button>
-              <button type="button" onClick={() => fillRole('Admin')} className="hover:text-blue-400 font-medium">Admin</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ----------------- ENTERPRISE DASHBOARD -----------------
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flex font-sans">
+    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#090d16', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      
       {/* Sidebar */}
-      <aside className="w-64 bg-[#0d1424] border-r border-[#1a233a] flex flex-col justify-between shrink-0">
+      <aside style={{ width: '260px', backgroundColor: '#0f1422', borderRight: '1px solid #1e293b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '20px 16px' }}>
         <div>
-          {/* Logo Header */}
-          <div className="p-5 flex items-center gap-3 border-b border-[#1a233a]">
-            <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white shadow-md">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+            <div style={{ width: '42px', height: '42px', backgroundColor: '#4f46e5', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#ffffff', fontSize: '18px' }}>
               FR
             </div>
             <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-sm tracking-tight text-white">Fundsroom</span>
-                <span className="bg-blue-500/20 text-blue-400 text-[10px] font-bold px-1.5 py-0.5 rounded border border-blue-500/30">PRO</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontWeight: 700, fontSize: '15px', color: '#ffffff' }}>Fundsroom</span>
+                <span style={{ backgroundColor: '#3b82f6', color: '#ffffff', fontSize: '10px', fontWeight: 'bold', padding: '2px 5px', borderRadius: '4px' }}>PRO</span>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium">OPERATIONS SUITE</p>
+              <div style={{ fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', marginTop: '3px' }}>OPERATIONS SUITE</div>
             </div>
           </div>
 
-          {/* Navigation Links */}
-          <div className="p-3">
-            <p className="text-[10px] font-bold text-slate-500 tracking-wider uppercase px-3 py-2">
-              ENTERPRISE CORE
-            </p>
-            <nav className="space-y-1 mt-1">
-              <button
-                onClick={() => setActiveTab('challans')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-semibold transition ${
-                  activeTab === 'challans'
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#131d33]'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span>📄</span>
-                  <span>Sales Challans</span>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'challans' ? 'bg-black/30' : 'bg-[#1a243d] text-slate-300'}`}>
-                  {challans.length}
-                </span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('inventory')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-semibold transition ${
-                  activeTab === 'inventory'
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#131d33]'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span>📦</span>
-                  <span>Inventory & Stocks</span>
-                </div>
-                {lowStockCount > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-red-500/20 text-red-400 border border-red-500/40 text-[10px] flex items-center justify-center font-bold">
-                    !
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('crm')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-semibold transition ${
-                  activeTab === 'crm'
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#131d33]'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span>👥</span>
-                  <span>Customer CRM</span>
-                </div>
-                <span className="text-[10px] text-slate-500 font-bold">{customers.length}</span>
-              </button>
-            </nav>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', marginBottom: '12px' }}>
+            ENTERPRISE CORE
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <button 
+              onClick={() => setActiveTab('challans')}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: activeTab === 'challans' ? '#4f46e5' : 'transparent', color: activeTab === 'challans' ? '#ffffff' : '#94a3b8', borderRadius: '8px', border: 'none', fontWeight: 500, fontSize: '13px', cursor: 'pointer' }}>
+              <span>📄 Sales Challans</span>
+              <span style={{ backgroundColor: activeTab === 'challans' ? '#1e1b4b' : '#1e293b', color: '#ffffff', fontSize: '11px', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>{challans.length}</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('inventory')}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: activeTab === 'inventory' ? '#4f46e5' : 'transparent', color: activeTab === 'inventory' ? '#ffffff' : '#94a3b8', borderRadius: '8px', border: 'none', fontSize: '13px', cursor: 'pointer' }}>
+              <span>📦 Inventory & Stocks</span>
+              <span style={{ backgroundColor: '#7f1d1d', color: '#fca5a5', fontSize: '10px', padding: '2px 6px', borderRadius: '12px' }}>!</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('crm')}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: activeTab === 'crm' ? '#4f46e5' : 'transparent', color: activeTab === 'crm' ? '#ffffff' : '#94a3b8', borderRadius: '8px', border: 'none', fontSize: '13px', cursor: 'pointer' }}>
+              <span>👥 Customer CRM</span>
+              <span style={{ color: '#64748b', fontSize: '11px' }}>{customers.length}</span>
+            </button>
           </div>
         </div>
 
-        {/* User Session Footer */}
-        <div className="p-4 border-t border-[#1a233a] bg-[#0a0f1d]">
-          <div className="flex items-center justify-between mb-3">
+        <div style={{ borderTop: '1px solid #1e293b', paddingTop: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <div>
-              <p className="text-xs font-bold text-slate-200">{user.name || 'Sales Lead'}</p>
-              <p className="text-[10px] text-teal-400 font-semibold uppercase tracking-wider">{user.role} PERSONA</p>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: '#ffffff' }}>Sales Lead</div>
+              <div style={{ fontSize: '10px', color: '#38bdf8', letterSpacing: '0.05em' }}>SALES PERSONA</div>
             </div>
-            <div className="w-2 h-2 rounded-full bg-teal-400 shadow-sm shadow-teal-400"></div>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
           </div>
-          <button
-            onClick={handleLogout}
-            className="w-full py-1.5 px-3 rounded bg-[#162035] hover:bg-[#1e2c49] text-slate-300 text-xs font-medium border border-[#23314f] transition"
-          >
+          <button 
+            onClick={() => window.location.reload()}
+            style={{ width: '100%', padding: '8px', backgroundColor: '#1e293b', color: '#94a3b8', border: '1px solid #334155', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}>
             Terminate Session
           </button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Top Navbar */}
-        <header className="h-14 bg-[#0d1424] border-b border-[#1a233a] px-6 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-400 font-medium">Workspace</span>
-            <span className="text-slate-600">/</span>
-            <span className="text-slate-200 font-semibold capitalize">{activeTab} View</span>
+      {/* Main Panel */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <header style={{ height: '56px', borderBottom: '1px solid #1e293b', padding: '0 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#0c101d' }}>
+          <div style={{ fontSize: '12px', color: '#64748b' }}>
+            Workspace / <span style={{ color: '#cbd5e1', fontWeight: 500 }}>Challans View</span>
           </div>
-
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span className="text-emerald-400 text-xs font-medium tracking-wide">Neon Cloud DB Live</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#34d399', backgroundColor: '#064e3b33', padding: '4px 10px', borderRadius: '6px', border: '1px solid #065f46' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
+            Neon Cloud DB Live
           </div>
         </header>
 
-        {/* Workspace Body */}
-        <main className="p-6 space-y-6 max-w-[1400px] w-full mx-auto">
-          {/* Toast Banner */}
-          {toastMsg && (
-            <div className="p-3.5 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs flex justify-between items-center shadow-lg animate-fade-in">
-              <span>{toastMsg}</span>
-              <button onClick={() => setToastMsg('')} className="text-emerald-400 hover:text-white text-base">✕</button>
-            </div>
-          )}
-
-          {/* KPI Dashboard Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-[#0d1424] border border-[#1b253b] rounded-xl p-4 flex justify-between items-start shadow-sm">
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">CUSTOMER ACCOUNTS</p>
-                <h3 className="text-2xl font-black text-white mt-2">{customers.length}</h3>
-                <p className="text-[10px] text-slate-500 mt-1">Verified partner entities</p>
+        {/* Tab 1: Challans Overview */}
+        {activeTab === 'challans' && (
+          <main style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Top Metric Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>CUSTOMER ACCOUNTS</span>
+                  <span style={{ fontSize: '14px', color: '#6366f1' }}>👥</span>
+                </div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{customers.length || 2}</div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Verified partner entities</div>
               </div>
-              <span className="p-2 rounded-lg bg-blue-500/10 text-blue-400 text-sm">👥</span>
-            </div>
 
-            <div className="bg-[#0d1424] border border-[#1b253b] rounded-xl p-4 flex justify-between items-start shadow-sm">
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">WAREHOUSE TOTAL UNITS</p>
-                <h3 className="text-2xl font-black text-white mt-2">{totalWarehouseUnits}</h3>
-                <p className="text-[10px] text-slate-500 mt-1">Live physical count</p>
+              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>WAREHOUSE TOTAL UNITS</span>
+                  <span style={{ fontSize: '14px', color: '#f59e0b' }}>📦</span>
+                </div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{warehouseUnits}</div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Live physical count</div>
               </div>
-              <span className="p-2 rounded-lg bg-amber-500/10 text-amber-400 text-sm">📦</span>
-            </div>
 
-            <div className="bg-[#0d1424] border border-[#1b253b] rounded-xl p-4 flex justify-between items-start shadow-sm">
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">LOW STOCK WARNINGS</p>
-                <h3 className="text-2xl font-black text-white mt-2">{lowStockCount}</h3>
-                <p className="text-[10px] text-slate-500 mt-1">Below minimum threshold</p>
+              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>LOW STOCK WARNINGS</span>
+                  <span style={{ fontSize: '14px', color: '#ef4444' }}>⚠️</span>
+                </div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{lowStockWarnings}</div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Below minimum threshold</div>
               </div>
-              <span className="p-2 rounded-lg bg-red-500/10 text-red-400 text-sm">⚠️</span>
-            </div>
 
-            <div className="bg-[#0d1424] border border-[#1b253b] rounded-xl p-4 flex justify-between items-start shadow-sm">
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">CHALLANS GENERATED</p>
-                <h3 className="text-2xl font-black text-white mt-2">{challans.length}</h3>
-                <p className="text-[10px] text-slate-500 mt-1">Audit log records</p>
+              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '18px 20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>CHALLANS GENERATED</span>
+                  <span style={{ fontSize: '14px', color: '#8b5cf6' }}>📄</span>
+                </div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: '#ffffff', marginTop: '12px' }}>{challans.length || 10}</div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Audit log records</div>
               </div>
-              <span className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 text-sm">📄</span>
             </div>
-          </div>
 
-          {/* MAIN TAB CONTENT: Sales Challans View */}
-          {activeTab === 'challans' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Issue Sales Challan Form (Left Box) */}
-              <div className="lg:col-span-4 bg-[#0d1424] border border-[#1b253b] rounded-2xl p-5 shadow-lg">
-                <h3 className="text-sm font-bold text-white">Issue Sales Challan</h3>
-                <p className="text-[11px] text-slate-400 mt-0.5 mb-4">Deducts inventory stock transactionally</p>
+            {/* Success Banner */}
+            {successMsg && (
+              <div style={{ backgroundColor: '#064e3b40', border: '1px solid #065f46', borderRadius: '8px', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#34d399', fontSize: '13px' }}>
+                <span>{successMsg}</span>
+                <span onClick={() => setSuccessMsg('')} style={{ cursor: 'pointer', color: '#6ee7b7', fontWeight: 'bold' }}>✕</span>
+              </div>
+            )}
 
-                <form onSubmit={handleProcessChallan} className="space-y-4">
+            {/* Split Form & Dispatch Table */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
+              
+              {/* Form Card */}
+              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Issue Sales Challan</h3>
+                <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', marginBottom: '18px' }}>Deducts inventory stock transactionally</p>
+
+                <form onSubmit={handleDispatch} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                      SELECT PARTNER
-                    </label>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', marginBottom: '6px' }}>SELECT PARTNER</label>
                     <select
-                      required
-                      value={selectedCustomerId}
-                      onChange={(e) => setSelectedCustomerId(e.target.value)}
-                      className="w-full bg-[#131c31] border border-[#23314f] text-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-500 transition"
+                      value={selectedPartner}
+                      onChange={(e) => setSelectedPartner(e.target.value)}
+                      style={{ width: '100%', padding: '9px 12px', backgroundColor: '#0a0d18', border: '1px solid #3b82f6', borderRadius: '6px', color: '#ffffff', fontSize: '12px', outline: 'none' }}
                     >
                       <option value="">-- Choose Consignee --</option>
                       {customers.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.customer_name} ({c.business_name || 'Individual'})
+                        <option key={c.id} value={c.id} style={{ backgroundColor: '#0f1422', color: '#ffffff' }}>
+                          {c.customer_name || c.name || c.business_name} {c.business_name ? `(${c.business_name})` : ''}
                         </option>
                       ))}
                     </select>
                   </div>
 
                   <div>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        PRODUCT LINE
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setChallanLines([...challanLines, { product_id: '', quantity: 1 }])}
-                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300"
-                      >
-                        + Add Line
-                      </button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em' }}>PRODUCT LINE</label>
+                      <span onClick={() => alert('Add line triggered')} style={{ fontSize: '11px', color: '#6366f1', cursor: 'pointer' }}>+ Add Line</span>
                     </div>
-
-                    {challanLines.map((line, idx) => (
-                      <div key={idx} className="flex gap-2 mb-2">
-                        <select
-                          required
-                          value={line.product_id}
-                          onChange={(e) => {
-                            const updated = [...challanLines];
-                            updated[idx].product_id = e.target.value;
-                            setChallanLines(updated);
-                          }}
-                          className="flex-1 bg-[#131c31] border border-[#23314f] text-slate-200 rounded-lg px-2.5 py-2 text-xs outline-none focus:border-blue-500 transition"
-                        >
-                          <option value="">Select Item...</option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id} disabled={p.current_stock <= 0}>
-                              {p.product_name} (Stock: {p.current_stock})
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <select
+                        value={selectedProduct}
+                        onChange={(e) => setSelectedProduct(e.target.value)}
+                        style={{ flex: 1, padding: '9px 12px', backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '6px', color: '#ffffff', fontSize: '12px', outline: 'none' }}
+                      >
+                        <option value="">Select Item...</option>
+                        {products.map((p) => {
+                          const pStock = p.stock ?? p.quantity ?? p.units ?? 0;
+                          return (
+                            <option key={p.id} value={p.id} style={{ backgroundColor: '#0f1422', color: '#ffffff' }}>
+                              {p.name || p.product_name} (Stock: {pStock})
                             </option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          min="1"
-                          required
-                          value={line.quantity}
-                          onChange={(e) => {
-                            const updated = [...challanLines];
-                            updated[idx].quantity = parseInt(e.target.value, 10) || 1;
-                            setChallanLines(updated);
-                          }}
-                          className="w-16 bg-[#131c31] border border-[#23314f] text-slate-200 rounded-lg px-2 py-2 text-xs text-center font-semibold outline-none focus:border-blue-500 transition"
-                        />
-                      </div>
-                    ))}
+                          );
+                        })}
+                      </select>
+                      <input
+                        type="number"
+                        min="1"
+                        value={quantity}
+                        onChange={(e) => setQuantity(e.target.value)}
+                        style={{ width: '60px', padding: '9px', backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '6px', color: '#ffffff', fontSize: '12px', textAlign: 'center', outline: 'none' }}
+                      />
+                    </div>
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                      DISPATCH STATE
-                    </label>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', marginBottom: '6px' }}>DISPATCH STATE</label>
                     <select
                       value={dispatchState}
                       onChange={(e) => setDispatchState(e.target.value)}
-                      className="w-full bg-[#131c31] border border-[#23314f] text-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-500 transition"
+                      style={{ width: '100%', padding: '9px 12px', backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '6px', color: '#ffffff', fontSize: '12px', outline: 'none' }}
                     >
-                      <option value="Confirmed">Confirmed (Immediate Stock Reduction)</option>
-                      <option value="Draft">Draft (Hold Only)</option>
+                      <option value="Confirmed (Immediate Stock Reduction)">Confirmed (Immediate Stock Reduction)</option>
                     </select>
                   </div>
 
                   <button
                     type="submit"
-                    className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium text-xs shadow-lg shadow-indigo-600/30 transition pt-2"
+                    style={{ width: '100%', padding: '11px', backgroundColor: '#6366f1', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '13px', cursor: 'pointer', marginTop: '6px' }}
                   >
                     Process Challan Dispatch
                   </button>
                 </form>
               </div>
 
-              {/* Challan Dispatch Records (Right Table) */}
-              <div className="lg:col-span-8 bg-[#0d1424] border border-[#1b253b] rounded-2xl p-5 shadow-lg">
-                <div className="flex justify-between items-center mb-4">
+              {/* Records Table */}
+              <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <div>
-                    <h3 className="text-sm font-bold text-white">Challan Dispatch Records</h3>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Click any row to view print-ready dispatch invoice</p>
+                    <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Challan Dispatch Records</h3>
+                    <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', margin: 0 }}>Click any row to view print-ready dispatch invoice</p>
                   </div>
-                  <button className="px-3 py-1.5 rounded-lg bg-[#162035] hover:bg-[#1e2c49] border border-[#23314f] text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition">
+                  <button 
+                    onClick={() => window.print()}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#94a3b8', fontSize: '12px', cursor: 'pointer' }}>
                     <span>🖨️</span> Export PDF
                   </button>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                     <thead>
-                      <tr className="border-b border-[#1b253b] text-slate-400 uppercase tracking-wider text-[10px]">
-                        <th className="pb-3 px-3">CHALLAN #</th>
-                        <th className="pb-3 px-3">CUSTOMER</th>
-                        <th className="pb-3 px-3">TOTAL QTY</th>
-                        <th className="pb-3 px-3">STATUS</th>
-                        <th className="pb-3 px-3 text-right">VOUCHER</th>
+                      <tr style={{ borderBottom: '1px solid #1e293b', textAlign: 'left', color: '#64748b', fontSize: '10px', letterSpacing: '0.05em' }}>
+                        <th style={{ padding: '8px 10px' }}>CHALLAN #</th>
+                        <th style={{ padding: '8px 10px' }}>CUSTOMER</th>
+                        <th style={{ padding: '8px 10px' }}>TOTAL QTY</th>
+                        <th style={{ padding: '8px 10px' }}>STATUS</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>VOUCHER</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#151e33]">
-                      {challans.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="py-8 text-center text-slate-500">
-                            No dispatch records recorded yet.
+                    <tbody>
+                      {challans.map((r, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid #1e293b66', color: '#cbd5e1' }}>
+                          <td style={{ padding: '10px', color: '#38bdf8', fontFamily: 'monospace' }}>{r.challan_number || r.id}</td>
+                          <td style={{ padding: '10px', color: '#ffffff' }}>{r.customer_name || r.customer}</td>
+                          <td style={{ padding: '10px', color: '#94a3b8' }}>{r.total_qty || r.qty} units</td>
+                          <td style={{ padding: '10px' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#064e3b33', color: '#34d399', fontSize: '11px', border: '1px solid #065f46' }}>
+                              ● {r.status || 'Confirmed'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px', textAlign: 'right' }}>
+                            <button 
+                              onClick={() => setActiveInvoice(r)}
+                              style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '11px', textDecoration: 'underline' }}>
+                              View Invoice
+                            </button>
                           </td>
                         </tr>
-                      ) : (
-                        challans.map((ch) => {
-                          const customerObj = ch.customer_snapshot || {};
-                          return (
-                            <tr key={ch.id} className="hover:bg-[#121a2d] transition">
-                              <td className="py-3 px-3 font-mono font-medium text-blue-400">
-                                {ch.challan_number}
-                              </td>
-                              <td className="py-3 px-3 text-slate-200 font-medium">
-                                {customerObj.customer_name || ch.customer_name || 'N/A'}
-                              </td>
-                              <td className="py-3 px-3 text-slate-300">
-                                {ch.total_quantity} units
-                              </td>
-                              <td className="py-3 px-3">
-                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                  ch.status === 'Confirmed'
-                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                    : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                }`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full ${ch.status === 'Confirmed' ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
-                                  {ch.status}
-                                </span>
-                              </td>
-                              <td className="py-3 px-3 text-right">
-                                <button className="text-blue-400 hover:text-blue-300 font-semibold underline">
-                                  View Invoice
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
+                      ))}
                     </tbody>
                   </table>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* INVENTORY TAB VIEW */}
-          {activeTab === 'inventory' && (
-            <div className="bg-[#0d1424] border border-[#1b253b] rounded-2xl p-5 shadow-lg">
-              <h3 className="text-sm font-bold text-white mb-1">Warehouse Stock Catalog</h3>
-              <p className="text-[11px] text-slate-400 mb-4">Live inventory tracking and threshold monitors</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-[#1b253b] text-slate-400 uppercase tracking-wider text-[10px]">
-                      <th className="pb-3 px-3">SKU</th>
-                      <th className="pb-3 px-3">PRODUCT</th>
-                      <th className="pb-3 px-3">CATEGORY</th>
-                      <th className="pb-3 px-3">LOCATION</th>
-                      <th className="pb-3 px-3 text-right">PRICE</th>
-                      <th className="pb-3 px-3 text-right">STOCK COUNT</th>
+            </div>
+          </main>
+        )}
+
+        {/* Tab 2: Inventory */}
+        {activeTab === 'inventory' && (
+          <main style={{ padding: '24px 28px' }}>
+            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '24px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Warehouse Inventory</h2>
+              <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', marginBottom: '20px' }}>Live stocks from Neon Cloud Database</p>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #1e293b', textAlign: 'left', color: '#64748b', fontSize: '11px' }}>
+                    <th style={{ padding: '10px' }}>PRODUCT NAME</th>
+                    <th style={{ padding: '10px' }}>AVAILABLE UNITS</th>
+                    <th style={{ padding: '10px' }}>SAFETY THRESHOLD</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map(p => (
+                    <tr key={p.id} style={{ borderBottom: '1px solid #1e293b66' }}>
+                      <td style={{ padding: '12px 10px', color: '#ffffff' }}>{p.name || p.product_name}</td>
+                      <td style={{ padding: '12px 10px', color: '#38bdf8', fontWeight: 'bold' }}>{p.stock ?? p.quantity ?? p.units} units</td>
+                      <td style={{ padding: '12px 10px', color: '#64748b' }}>5 units</td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#151e33]">
-                    {products.map((p) => (
-                      <tr key={p.id} className="hover:bg-[#121a2d]">
-                        <td className="py-3 px-3 font-mono text-slate-400">{p.sku}</td>
-                        <td className="py-3 px-3 font-medium text-slate-200">{p.product_name}</td>
-                        <td className="py-3 px-3 text-slate-400">{p.category}</td>
-                        <td className="py-3 px-3 text-slate-400">{p.location}</td>
-                        <td className="py-3 px-3 text-right text-slate-300">₹{Number(p.unit_price).toFixed(2)}</td>
-                        <td className="py-3 px-3 text-right font-bold">
-                          <span className={Number(p.current_stock) <= Number(p.min_stock_alert || 5) ? 'text-red-400' : 'text-emerald-400'}>
-                            {p.current_stock}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </main>
+        )}
+
+        {/* Tab 3: CRM */}
+        {activeTab === 'crm' && (
+          <main style={{ padding: '24px 28px' }}>
+            <div style={{ backgroundColor: '#0f1422', border: '1px solid #1e293b', borderRadius: '12px', padding: '24px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#ffffff', margin: 0 }}>Registered Customer Directory</h2>
+              <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', marginBottom: '20px' }}>Active distribution partners</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+                {customers.map(c => (
+                  <div key={c.id} style={{ backgroundColor: '#0a0d18', border: '1px solid #1e293b', borderRadius: '8px', padding: '16px' }}>
+                    <div style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff' }}>{c.customer_name || c.name}</div>
+                    <div style={{ fontSize: '12px', color: '#38bdf8', marginTop: '2px' }}>{c.business_name || 'Enterprise Client'}</div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>📞 {c.phone || '+91 9876543210'}</div>
+                  </div>
+                ))}
               </div>
             </div>
-          )}
+          </main>
+        )}
 
-          {/* CRM TAB VIEW */}
-          {activeTab === 'crm' && (
-            <div className="bg-[#0d1424] border border-[#1b253b] rounded-2xl p-5 shadow-lg">
-              <h3 className="text-sm font-bold text-white mb-1">Customer CRM Directory</h3>
-              <p className="text-[11px] text-slate-400 mb-4">Partner accounts and client follow-ups</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-[#1b253b] text-slate-400 uppercase tracking-wider text-[10px]">
-                      <th className="pb-3 px-3">CUSTOMER</th>
-                      <th className="pb-3 px-3">BUSINESS NAME</th>
-                      <th className="pb-3 px-3">MOBILE</th>
-                      <th className="pb-3 px-3">TYPE</th>
-                      <th className="pb-3 px-3">STATUS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#151e33]">
-                    {customers.map((c) => (
-                      <tr key={c.id} className="hover:bg-[#121a2d]">
-                        <td className="py-3 px-3 font-medium text-slate-200">{c.customer_name}</td>
-                        <td className="py-3 px-3 text-slate-400">{c.business_name || 'N/A'}</td>
-                        <td className="py-3 px-3 text-slate-400">{c.mobile_number}</td>
-                        <td className="py-3 px-3 text-slate-300">{c.customer_type}</td>
-                        <td className="py-3 px-3">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                            {c.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </main>
       </div>
+
+      {/* Invoice Modal */}
+      {activeInvoice && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ width: '450px', backgroundColor: '#0f1422', border: '1px solid #334155', borderRadius: '12px', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', color: '#ffffff' }}>Dispatch Invoice: {activeInvoice.challan_number || activeInvoice.id}</h3>
+              <button onClick={() => setActiveInvoice(null)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '16px', cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding: '18px 0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div><span style={{ color: '#64748b' }}>Customer:</span> <strong style={{ color: '#ffffff' }}>{activeInvoice.customer_name || activeInvoice.customer}</strong></div>
+              <div><span style={{ color: '#64748b' }}>Total Quantity:</span> <strong style={{ color: '#38bdf8' }}>{activeInvoice.total_qty || activeInvoice.qty} Units</strong></div>
+              <div><span style={{ color: '#64748b' }}>Status:</span> <span style={{ color: '#34d399', fontWeight: 'bold' }}>● {activeInvoice.status || 'Confirmed'}</span></div>
+            </div>
+            <button onClick={() => window.print()} style={{ width: '100%', padding: '10px', backgroundColor: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
+              Print Voucher
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

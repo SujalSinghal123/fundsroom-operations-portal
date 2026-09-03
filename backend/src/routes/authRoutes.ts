@@ -36,12 +36,7 @@ router.post('/login', async (req: any, res: any) => {
     return res.json({
       success: true,
       token,
-      user: {
-        id: 1,
-        name,
-        email,
-        role
-      }
+      user: { id: 1, name, email, role }
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
@@ -50,51 +45,39 @@ router.post('/login', async (req: any, res: any) => {
 
 router.get('/seed-database', async (req: any, res: any) => {
   try {
-    // 1. Detect Customer table column
-    const custColsRes = await pool.query(`
-      SELECT column_name FROM information_schema.columns WHERE table_name = 'customers';
+    // 1. Insert Customers with business_name
+    await pool.query(`
+      INSERT INTO customers (business_name) VALUES 
+      ('Apex Logistics Pvt Ltd'),
+      ('Reliance Retail Hub'),
+      ('BlueDart Supply Chain'),
+      ('Tata Steel Distribution')
+      ON CONFLICT DO NOTHING;
     `);
-    const custCols = custColsRes.rows.map((r: any) => r.column_name);
 
-    let custNameCol = 'name';
-    if (custCols.includes('customer_name')) custNameCol = 'customer_name';
-    else if (custCols.includes('company_name')) custNameCol = 'company_name';
-    else if (custCols.includes('title')) custNameCol = 'title';
-
-    if (custCols.length > 0) {
-      await pool.query(`
-        INSERT INTO customers (${custNameCol}) VALUES 
-        ('Apex Logistics Pvt Ltd'),
-        ('Reliance Retail Hub'),
-        ('BlueDart Supply Chain'),
-        ('Tata Steel Distribution')
-        ON CONFLICT DO NOTHING;
-      `);
-    }
-
-    // 2. Detect Product table columns & set total 30 units
+    // 2. Fetch products schema and set 30 total units
     const prodColsRes = await pool.query(`
-      SELECT column_name FROM information_schema.columns WHERE table_name = 'products';
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'products';
     `);
-    const prodCols = prodColsRes.rows.map((r: any) => r.column_name);
+    const cols = prodColsRes.rows.map((r: any) => r.column_name);
 
-    if (prodCols.length > 0) {
-      let pNameCol = prodCols.includes('product_name') ? 'product_name' : (prodCols.includes('title') ? 'title' : 'name');
-      let pQtyCol = prodCols.includes('quantity') ? 'quantity' : (prodCols.includes('units') ? 'units' : 'stock');
+    let nameCol = cols.find((c: string) => ['name', 'product_name', 'title', 'item_name'].includes(c)) || 'name';
+    let qtyCol = cols.find((c: string) => ['quantity', 'units', 'stock', 'available_stock', 'current_stock'].includes(c)) || 'stock';
 
-      await pool.query(`DELETE FROM products;`);
-      await pool.query(`
-        INSERT INTO products (${pNameCol}, ${pQtyCol}) VALUES 
-        ('Heavy Duty Pallet Racks', 15),
-        ('Hydraulic Hand Pallet Truck 2.5T', 10),
-        ('Industrial Barcode Scanner X-200', 5);
-      `);
-    }
+    await pool.query(`DELETE FROM products;`);
+    await pool.query(`
+      INSERT INTO products (${nameCol}, ${qtyCol}) VALUES 
+      ('Heavy Duty Pallet Racks', 15),
+      ('Hydraulic Hand Pallet Truck 2.5T', 10),
+      ('Industrial Barcode Scanner X-200', 5);
+    `);
 
     return res.send(`
       <div style="font-family: sans-serif; text-align: center; padding-top: 50px;">
         <h1 style="color: #10B981;">Database Seeded Successfully!</h1>
-        <p>Customers added & Warehouse physical units updated to 30.</p>
+        <p>Customers added using <b>business_name</b> and Warehouse physical units updated to <b>30</b>.</p>
         <a href="https://fundsroom-operations-portal-three.vercel.app" style="display: inline-block; padding: 10px 20px; background: #6366F1; color: white; border-radius: 6px; text-decoration: none;">Open Portal</a>
       </div>
     `);

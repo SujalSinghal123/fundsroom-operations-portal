@@ -1,37 +1,58 @@
-﻿# Fundsroom Operations Portal (Mini ERP + CRM)
+# Fundsroom Enterprise Operations Suite (ERP & Challan Engine)
 
-A full-stack enterprise operations system designed for wholesale and distribution workflows, featuring role-based access, customer relationship tracking, inventory management with low-stock alerts, and atomic sales challan processing.
+A high-performance enterprise resource planning and dispatch management portal designed for wholesale supply chain networks. Features ACID-compliant transaction handling for sales challan processing, real-time inventory threshold monitors, partner CRM integration, and role-based operational access.
 
-## Tech Stack
-- Frontend: React 18, Vite, Tailwind CSS
-- Backend: Node.js, Express.js, TypeScript
-- Database: PostgreSQL (Cloud-hosted on Neon DB)
-- Authentication: JWT & Bcrypt password encryption
+Developed and maintained by **Sujal Singhal**.
 
-## Key Modules & Capabilities
-1. Role-Based Authentication: Custom dashboards tailored for Admin, Sales, Warehouse, and Accounts roles.
-2. Customer CRM: Manage wholesale, retail, and distributor accounts with GST numbers, contact info, and status tracking.
-3. Inventory & Warehouse Tracking: SKU tracking, price management, real-time low-stock alerts, and atomic stock movement logs (IN/OUT).
-4. Sales Challan Module: Multi-item product dispatch system with transactional stock deduction (prevents negative stock balances) and print-ready PDF export.
+---
 
-## Test Credentials
-All pre-configured accounts use the password: Password@123
-- Sales Role: sales@fundsweb.in
-- Warehouse Role: warehouse@fundsweb.in
-- Admin Role: admin@fundsweb.in
-- Accounts Role: accounts@fundsweb.in
+## 🚀 Live Deployments
 
-## Local Setup Instructions
-### 1. Backend Service
-cd backend
-npm install
-npm run dev
+* **Production Web Portal:** [https://fundsroom-operations-portal-three.vercel.app](https://fundsroom-operations-portal-three.vercel.app)
+* **Backend API Engine:** [https://fundsroom-api-twtt.onrender.com](https://fundsroom-api-twtt.onrender.com)
+* **Database Infrastructure:** Neon Serverless PostgreSQL (Cloud Native)
 
-### 2. Frontend Client
-cd frontend
-npm install
-npm run dev
-Open http://localhost:3000 in your browser.
+---
 
-## API Documentation
-The collection is included in postman_collection.json with endpoints for Authentication, Customer CRM, Product Inventory, and Sales Challans.
+## 🛠️ Architecture & Tech Stack
+
+* **Frontend:** React 18, Vite, Tailwind CSS, Lucide Icons
+* **Backend:** Node.js, Express.js, TypeScript
+* **Database:** PostgreSQL (Neon Cloud) with Connection Pooling & ACID Guarantees
+* **Authentication:** Stateless JWT with Role-Based Access Control (Admin, Warehouse, Sales)
+* **Deployment:** Vercel (Edge Frontend) & Render (RESTful Microservice)
+
+---
+
+## ✨ Key Enterprise Capabilities
+
+* **Atomic Stock Reduction:** Prevents race conditions during simultaneous sales challan dispatches across multiple warehouse terminals.
+* **Role-Based Workspaces:**
+  * **Sales Executive:** Customer ledger access, dispatch issuance, and voucher downloads.
+  * **Warehouse Manager:** Stock threshold alerts, physical unit updates, and SKU status checks.
+  * **Administrator:** Complete audit trail, entity configuration, and system parameters.
+* **Safety Threshold Monitoring:** Real-time stock audit warnings (`Low Stock` triggers at $\le$ 5 units).
+* **Voucher Generation & Print Engine:** Direct browser print & PDF generation for standard logistics dispatch slips.
+
+---
+
+## 📁 Repository Structure
+
+```text
+fundsroom-operations-portal/
+├── backend/
+│   ├── src/
+│   │   ├── config/          # PostgreSQL database pool configuration
+│   │   ├── middleware/      # JWT authentication and role authorization
+│   │   ├── routes/          # RESTful endpoints (Auth, Customers, Products, Challans)
+│   │   └── server.ts        # Express application bootstrap
+│   ├── package.json
+│   └── tsconfig.json
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx          # Operations Suite Workspace & State Engine
+│   │   ├── main.jsx         # React DOM mounting
+│   │   └── index.css        # Core styles & styling directives
+│   ├── package.json
+│   └── vite.config.js
+└── README.md
